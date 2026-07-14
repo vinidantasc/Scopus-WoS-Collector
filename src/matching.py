@@ -25,10 +25,11 @@ como ausente superestimaria a defasagem. Mas **tese, dissertação e trabalho de
 conclusão não são candidatos**: na UFRN o trabalho acadêmico costuma levar o mesmo
 título do artigo dele derivado — muitas vezes em inglês, e por vezes o próprio DOI do
 artigo nos metadados — de modo que aceitá-lo como par afirmaria que o artigo está no
-repositório quando o que está lá é a tese. A conferência do primeiro turno mediu o
-erro dos dois lados: dos 50 pares desse tipo, 49 eram a tese homônima e 1 era o artigo
-depositado com ``dc.type`` errado. A regra erra em 2% dos casos, e erra para menos,
-não para mais: subestima a cobertura em vez de inflá-la.
+repositório quando o que está lá é a tese. A conferência mediu o erro por censo: dos 47
+pares desse tipo, 45 eram a tese homônima e 2 eram o artigo depositado com ``dc.type``
+errado. A regra erra em 4,3% dos casos, e erra para menos, não para mais: subestima a
+cobertura em vez de inflá-la. Como o censo identifica um a um os registros em que ela
+erra, o erro não fica como resíduo — os 2 voltam a contar como cobertos na etapa C.
 
 Três etapas, aplicadas em ordem; o registro sai na primeira que casar:
 
@@ -50,6 +51,15 @@ ausência do artigo.
 
 No M1 não há restrição alguma, de ano ou de classe: um DOI encontrado prova que o item
 está lá.
+
+A trava de classe não esgota o problema do título compartilhado. Duas publicações
+distintas podem levar o mesmo título dentro da mesma classe: a revisão sistemática da
+Cochrane e o artigo de periódico que a resume têm nome idêntico, ano idêntico e DOI
+diferente, e o repositório tem só o segundo. Por isso o estrato dos pares por título é
+conferido por censo — são 14 por base —, e o par reprovado volta a ser ausência, pelo
+``falsos-positivos-conferencia.csv``. A divergência de DOI **não** serve como regra
+automática: nos demais pares do estrato quem diverge é o DOI do repositório, que está
+truncado, sem hífen, com espaço escapado, ou tomado de outro artigo.
 
 O M3 não compara todos os pares possíveis, que seriam centenas de milhões. Um índice
 invertido de tokens do título restringe a comparação aos itens do repositório que
@@ -331,6 +341,46 @@ def aplicar_correcoes(
     return pares, restantes
 
 
+def ler_falsos_positivos(dados: str) -> set[tuple[str, str]]:
+    """Pares que a conferência do estrato M2/M3 reprovou, e que voltam a ser ausência.
+
+    Espelho da etapa C, e de sinal contrário. A etapa por título casa dois trabalhos
+    distintos quando eles compartilham o título: a revisão sistemática Cochrane e o
+    artigo de periódico que a resume levam o mesmo nome, e o repositório tem só o
+    segundo. O DOI de cada lado prova que são publicações diferentes.
+
+    A correção **desce** a cobertura, isto é, corrige a favor da hipótese do estudo, e
+    por isso só entra registro a registro, com o veredito do conferente e a resolução
+    dos dois DOI, nunca por regra automática: dos 14 pares por base do estrato, a
+    divergência de DOI reprova um só. Nos demais o DOI do repositório é que está
+    corrompido — truncado, sem hífen, com espaço escapado, ou tomado de outro artigo —,
+    e descartá-los por regra jogaria fora par legítimo.
+    """
+    caminho = os.path.join(dados, "falsos-positivos-conferencia.csv")
+    if not os.path.exists(caminho):
+        return set()
+    return {(l["fonte"], l["id_base"]) for l in ler_csv(caminho)}
+
+
+def aplicar_falsos_positivos(
+    pares: list[dict],
+    ausentes: list[dict],
+    fonte: str,
+    falsos: set[tuple[str, str]],
+    universo: dict[str, dict],
+) -> tuple[list[dict], list[dict]]:
+    """Devolve a ausente o par que a conferência reprovou."""
+    if not falsos:
+        return pares, ausentes
+    mantidos: list[dict] = []
+    for par in pares:
+        if (fonte, par["id_base"]) in falsos:
+            ausentes.append(universo[par["id_base"]])
+        else:
+            mantidos.append(par)
+    return mantidos, ausentes
+
+
 def url_do_par(par: dict) -> tuple[str, str]:
     """Endereços para a conferência manual: o registro na base e o item no repositório."""
     url_base = f"https://doi.org/{par['doi']}" if par.get("doi") else ""
@@ -572,6 +622,29 @@ def relatar(
         "base**, com similaridade 0,9959, conferido por censo no segundo turno e correto nos "
         "dois casos. É a medida que sustenta manter o limiar de 0,95 como está.",
         "",
+        "**Censo do estrato por título (M2 e M3), concluído em 14/07/2026.** Os dois turnos "
+        "anteriores conferiram M3, tese homônima e ausentes, mas nunca o M2, que responde "
+        "por 13 pares em cada base. Conferidos agora os 14 pares por título de cada base, um "
+        "a um, com os dois DOI resolvidos no Crossref. **Um é falso positivo**, nas duas "
+        "bases: a revisão sistemática da Cochrane *Motor neuroprosthesis for promoting "
+        "recovery of function after stroke* (`10.1002/14651858.cd012991.pub2`) casou pelo "
+        "título com o artigo homônimo da *Stroke* (`10.1161/strokeaha.120.029235`), que é o "
+        "que o repositório de fato tem (handle 33984). São dois trabalhos distintos, e a "
+        "revisão não está no repositório. O par volta a ser ausência pelo "
+        "`falsos-positivos-conferencia.csv`, o que **desce** a cobertura — corrige a favor "
+        "da hipótese, e por isso entra registro a registro, com o veredito do conferente, "
+        "nunca por regra automática.",
+        "",
+        "**Nos outros 13 pares de cada base a divergência de DOI é do repositório, não do "
+        "pareamento.** O DOI do item depositado aparece truncado (`10.1016/j.msec.2020`), "
+        "sem o hífen (`jneurosci.025920.2020`), com espaço escapado "
+        "(`10.1371/journal.%20pone.0230610`) e, num caso, **tomado de outro artigo**: o item "
+        "32527 leva o título do artigo da *Applied Microbiology and Biotechnology* (2020) e "
+        "o DOI de um artigo da *Protein Expression and Purification* (2018), o que a "
+        "resolução no Crossref mostra. O par é legítimo — o artigo está lá —, mas o "
+        "identificador mente. Rejeitar o par por divergência de DOI, como regra, jogaria "
+        "fora o par verdadeiro junto com o falso.",
+        "",
         f"**Segundo turno (99 linhas, `validacao-manual.csv`), concluído.** Confere o "
         f"protocolo corrigido. Três estratos, sorteados com semente {SEMENTE}: 2 pares da "
         "etapa M3 (censo — a correção do protocolo derrubou o M3 a um par por base), 47 "
@@ -671,14 +744,19 @@ def executar(dados: str) -> None:
     ]
 
     correcoes = ler_correcoes(dados)
+    falsos = ler_falsos_positivos(dados)
     por_handle = {r.get("handle", ""): r for r in ri if r.get("handle")}
+    universo = {r["source_id"]: r for r in scopus + wos}
     if correcoes:
         print(f"correções da conferência: {len(correcoes)} registro(s) confirmados no RI")
+    if falsos:
+        print(f"falsos positivos da conferência: {len(falsos)} par(es) devolvidos a ausente")
 
     for cotejo, fonte, base, indice, saida_pares, saida_ausentes in cotejos:
         pares, ausentes = parear(base, indice, fonte)
         if saida_ausentes:  # só o cotejo contra o repositório tem conferência
             pares, ausentes = aplicar_correcoes(pares, ausentes, fonte, correcoes, por_handle)
+            pares, ausentes = aplicar_falsos_positivos(pares, ausentes, fonte, falsos, universo)
         escrever_csv(os.path.join(dados, saida_pares), pares, CAMPOS_PAR)
         if saida_ausentes:  # os dois cotejos contra o repositório, não o de bases entre si
             escrever_csv(os.path.join(dados, saida_ausentes), ausentes, CAMPOS)
