@@ -100,11 +100,18 @@ A tolerância de um ano acomoda a divergência entre a data de publicação onli
 
 A conferência é do pesquisador, item a item, abrindo o registro da base ao lado do handle do repositório. Três estratos, até 50 linhas cada, sorteados com semente fixa:
 
-- **pares da etapa M3**, ou todos, se forem menos de 50. Mede o falso positivo do limiar de similaridade.
+- **pares da etapa M3**, ou todos, se forem menos de 50. Mede o falso positivo do limiar de similaridade. Depois das três correções acima, restou **um único par M3 por base**: o estrato virou censo, e o limiar deixou de ser objeto de amostragem. A etapa M3 responde por 1 dos 910 pares da Scopus e 1 dos 833 da Web of Science, e o limiar de 0,95 fica registrado como está, sem revisão, por não ter efeito mensurável sobre a cobertura.
 - **registros com tese homônima no repositório**, que o protocolo classificou como ausentes. Mede o erro da regra que exclui o trabalho acadêmico do conjunto de candidatos, isto é, o artigo que foi depositado com `dc.type` de tese e que assim se perde.
-- **registros classificados como ausentes**, buscados no repositório pelo DOI e pelo título. Estima o falso negativo do protocolo, tipicamente o item de título traduzido ou subtítulo divergente. A taxa entra no artigo como margem de erro da cobertura.
+- **registros classificados como ausentes**, procurados no repositório pelos caminhos que o pareamento **não** usa. Estima o falso negativo do protocolo, tipicamente o item de título traduzido ou de subtítulo divergente. A taxa entra no artigo como margem de erro da cobertura.
 
-O primeiro turno de conferência (113 linhas) validou o protocolo anterior e motivou as três correções acima: o filtro de documentos citáveis, a exclusão das teses do conjunto de candidatos e a compatibilidade de classe nas etapas por título. Resultado: nenhum falso negativo em 50 ausentes, o que põe o teto do intervalo de confiança de 95% em 6% pela regra de três.
+O script `src/triagem.py` prepara a conferência do estrato dos ausentes: para cada registro sorteado, procura o trabalho no repositório pelo **DOI no índice de busca** (a busca Discovery varre todos os campos de metadado, inclusive os que a coleta lê por expressão regular), pelo **título como frase**, pelo **início do título** (o título inteiro entre aspas falha por qualquer divergência de pontuação) e pelo **nome do primeiro autor**, além de varrer o repositório local inteiro por similaridade de título sem limiar. A evidência de cada busca é gravada numa coluna do CSV. O script não decide: mostra o que achou, e o veredito é dado por pessoa.
+
+Duas regras de leitura da triagem, escolhidas para não fabricar vínculo nem esconder achado:
+
+- **Derivação não se decide por similaridade.** O trabalho de conclusão que origina o artigo costuma estar depositado com o título vertido para o português, e a similaridade entre os dois títulos fica entre 0,3 e 0,5 — abaixo de qualquer limiar defensável, no mesmo patamar de duas teses sem relação nenhuma. A tese é listada com a busca que a devolveu, e quem julga o vínculo é o conferente. A decisão não altera a cobertura: a tese não é candidato, e o registro segue ausente de qualquer modo. Ela alimenta o mecanismo da lacuna, descrito no artigo.
+- **Falso negativo só pode vir de item não acadêmico.** Só nesse caso a triagem pede revisão do pareamento.
+
+O primeiro turno (113 linhas) validou o protocolo anterior e motivou as três correções acima. O segundo turno (99 linhas) confere o protocolo corrigido, sobre um sorteio novo de ausentes, já que a correção mudou esse conjunto. Nos dois turnos: nenhum falso negativo em 50 ausentes, o que põe o teto do intervalo de confiança de 95% em 6% pela regra de três. No segundo turno, 47 dos 50 ausentes têm no repositório a tese, a dissertação ou o TCC do autor, e não o artigo.
 
 ## 6. Métricas
 
