@@ -11,20 +11,45 @@ O pareamento é local, sobre os CSVs da fase 1, e não por consulta ao repositó
 registro a registro: a busca remota multiplicaria as requisições e teria erro
 próprio, do motor de indexação, sobreposto ao erro que se quer medir.
 
-Universo e candidatos são coisas distintas. O universo medido é o das bases no
-recorte 2020–2025. Os candidatos são todos os itens do repositório, de qualquer ano
-(``ri-todos.csv``), porque o artigo publicado em 2020 e depositado com data
-divergente está no repositório e contá-lo como ausente superestimaria a defasagem.
+Universo e candidatos são coisas distintas, e cada um tem seu recorte.
+
+O universo medido é o das bases no período 2020–2025, restrito aos **documentos
+citáveis** (artigo, revisão, trabalho de congresso, capítulo de livro, data paper).
+Errata, editorial, carta, nota e resumo de congresso ficam de fora: não são o produto
+que o repositório deposita, e entravam no pareamento casando pelo título com o artigo
+homônimo já depositado, o que produzia par falso.
+
+Os candidatos são os itens do repositório de **qualquer ano** (``ri-todos.csv``),
+porque o artigo publicado em 2020 e depositado com data divergente está lá e contá-lo
+como ausente superestimaria a defasagem. Mas **tese, dissertação e trabalho de
+conclusão não são candidatos**: na UFRN o trabalho acadêmico costuma levar o mesmo
+título do artigo dele derivado — muitas vezes em inglês, e por vezes o próprio DOI do
+artigo nos metadados — de modo que aceitá-lo como par afirmaria que o artigo está no
+repositório quando o que está lá é a tese. A conferência do primeiro turno mediu o
+erro dos dois lados: dos 50 pares desse tipo, 49 eram a tese homônima e 1 era o artigo
+depositado com ``dc.type`` errado. A regra erra em 2% dos casos, e erra para menos,
+não para mais: subestima a cobertura em vez de inflá-la.
 
 Três etapas, aplicadas em ordem; o registro sai na primeira que casar:
 
-    M1  DOI normalizado igual                             — sem restrição de ano
-    M2  título normalizado igual e |Δano| ≤ 1
-    M3  título com similaridade ≥ 0,95 e |Δano| ≤ 1       — conferência manual
+    M1  DOI normalizado igual                                     — sem restrição
+    M2  título normalizado igual, |Δano| ≤ 1 e classe compatível
+    M3  título com similaridade ≥ 0,95, |Δano| ≤ 1 e classe compatível
 
 A tolerância de um ano acomoda a divergência entre a data de publicação antecipada,
 que as bases registram, e a data do fascículo, que o repositório costuma depositar.
-No M1 não há restrição de ano: um DOI encontrado prova que o item está lá.
+
+As etapas por título exigem **classe de documento compatível** (periódico com
+periódico, congresso com congresso, livro com livro), porque o trabalho apresentado em
+congresso leva o mesmo título do artigo de periódico que dele resulta e casaria com
+ele: no primeiro turno de conferência, três registros de congresso do CLEO 2021
+pareavam com o artigo homônimo publicado na *Nature Communications* e depositado no
+repositório, afirmando presença de um documento que não está lá. Classe desconhecida
+de um dos lados não desqualifica: metadado faltante do repositório não pode virar
+ausência do artigo.
+
+No M1 não há restrição alguma, de ano ou de classe: um DOI encontrado prova que o item
+está lá.
 
 O M3 não compara todos os pares possíveis, que seriam centenas de milhões. Um índice
 invertido de tokens do título restringe a comparação aos itens do repositório que
@@ -53,6 +78,33 @@ FREQUENCIA_MAXIMA_TOKEN = 0.01  # token presente em >1% dos candidatos é ruído
 CANDIDATOS_POR_REGISTRO = 20  # avaliados por similaridade, os de maior sobreposição
 SEMENTE = 20260713  # amostras de conferência reproduzíveis
 TAMANHO_AMOSTRA = 50  # por estrato, conforme 02-metodologia-matching.md §3
+
+# Documentos citáveis, que formam o universo medido. Na WoS o campo é composto
+# ("Article; Early Access", "Article; Meeting"): basta um componente citável.
+CITAVEIS_SCOPUS = {"Article", "Review", "Conference Paper", "Book Chapter", "Data Paper"}
+CITAVEIS_WOS = {"Article", "Review", "Proceedings Paper", "Meeting", "Book Chapter", "Data Paper"}
+
+# Trabalho acadêmico não é candidato: leva o título (às vezes o DOI) do artigo derivado.
+TESES_RI = {"bachelorThesis", "masterThesis", "doctoralThesis", "postGraduateThesis"}
+
+# Classe do documento, para as etapas por título. O trabalho apresentado em congresso
+# leva o mesmo título do artigo de periódico que dele resulta, e casaria com ele.
+CLASSE_BASE = {
+    "Article": "periodico",
+    "Review": "periodico",
+    "Data Paper": "periodico",
+    "Conference Paper": "congresso",
+    "Proceedings Paper": "congresso",
+    "Meeting": "congresso",
+    "Book Chapter": "livro",
+}
+CLASSE_RI = {
+    "article": "periodico",
+    "conferenceObject": "congresso",
+    "conferenceProceeding": "congresso",
+    "book": "livro",
+    "bookPart": "livro",
+}
 
 CAMPOS_PAR = [
     "fonte",
@@ -83,11 +135,38 @@ CAMPOS_VALIDACAO = [
 ]
 
 
-class Indice:
-    """Índice dos candidatos: por DOI, por título e por token do título."""
+def citavel(registro: dict, citaveis: set[str]) -> bool:
+    """O registro é documento citável? Na WoS o tipo é composto, separado por ';'."""
+    partes = {p.strip() for p in registro.get("type", "").split(";")}
+    return bool(partes & citaveis)
 
-    def __init__(self, registros: list[dict]) -> None:
+
+def filtrar_universo(base: list[dict], citaveis: set[str]) -> tuple[list[dict], collections.Counter]:
+    """Separa o universo medido dos documentos não citáveis, e conta o que saiu."""
+    dentro = [r for r in base if citavel(r, citaveis)]
+    fora = collections.Counter(r.get("type", "") for r in base if not citavel(r, citaveis))
+    return dentro, fora
+
+
+def classe_de(registro: dict, mapa: dict[str, str]) -> str:
+    """Classe do documento (periódico, congresso, livro); vazio se o tipo não é conhecido."""
+    for parte in registro.get("type", "").split(";"):
+        classe = mapa.get(parte.strip())
+        if classe:
+            return classe
+    return ""
+
+
+class Indice:
+    """Índice dos candidatos: por DOI, por título e por token do título.
+
+    ``classes`` mapeia o vocabulário de tipo do próprio conjunto (o do repositório, ou o
+    da base, quando se cotejam duas bases) para a classe de documento.
+    """
+
+    def __init__(self, registros: list[dict], classes: dict[str, str] = CLASSE_RI) -> None:
         self.registros = registros
+        self.classes = classes
         self.por_doi: dict[str, int] = {}
         self.por_titulo: dict[str, list[int]] = collections.defaultdict(list)
         self.por_token: dict[str, list[int]] = collections.defaultdict(list)
@@ -111,10 +190,20 @@ class Indice:
         teto = max(1, int(FREQUENCIA_MAXIMA_TOKEN * len(registros)))
         self.tokens_frequentes = {t for t, ids in self.por_token.items() if len(ids) > teto}
 
-    def compativel(self, i: int, ano_base: int) -> bool:
-        """Anos compatíveis dentro da tolerância; ano ausente não desqualifica."""
+    def compativel(self, i: int, ano_base: int, classe_base: str = "") -> bool:
+        """Ano dentro da tolerância e classe de documento compatível.
+
+        Ano ou classe ausente não desqualifica: o dado faltante do repositório não pode
+        virar ausência do artigo. Classes conhecidas e diferentes desqualificam — o
+        trabalho de congresso não é o artigo de periódico de mesmo título.
+        """
         ano = self.anos[i]
-        return ano == 0 or ano_base == 0 or abs(ano - ano_base) <= TOLERANCIA_ANO
+        if not (ano == 0 or ano_base == 0 or abs(ano - ano_base) <= TOLERANCIA_ANO):
+            return False
+        classe_alvo = classe_de(self.registros[i], self.classes)
+        if classe_base and classe_alvo and classe_base != classe_alvo:
+            return False
+        return True
 
     def candidatos(self, titulo: str) -> list[int]:
         """Itens que compartilham token discriminante, os de maior sobreposição antes."""
@@ -136,21 +225,23 @@ def parear(base: list[dict], indice: Indice, fonte: str) -> tuple[list[dict], li
     for registro in base:
         titulo = normalizar_titulo(registro["title"])
         ano = ano_de(registro)
+        classe = classe_de(registro, CLASSE_BASE)
         achado = None
 
+        # o DOI prova a presença: não se exige compatibilidade de ano nem de classe
         if registro["doi"] and registro["doi"] in indice.por_doi:
             achado = (indice.por_doi[registro["doi"]], "M1", 1.0)
 
         if achado is None and titulo:
             for i in indice.por_titulo.get(titulo, ()):
-                if indice.compativel(i, ano):
+                if indice.compativel(i, ano, classe):
                     achado = (i, "M2", 1.0)
                     break
 
         if achado is None and titulo:
             melhor, similaridade_melhor = None, 0.0
             for i in indice.candidatos(titulo):
-                if not indice.compativel(i, ano):
+                if not indice.compativel(i, ano, classe):
                     continue
                 similaridade = difflib.SequenceMatcher(None, titulo, indice.titulos[i]).ratio()
                 if similaridade > similaridade_melhor:
@@ -195,7 +286,7 @@ def url_do_par(par: dict) -> tuple[str, str]:
 
 def amostrar(
     pares_m3: list[dict],
-    pares_divergentes: list[dict],
+    pares_tese: list[dict],
     ausentes: list[dict],
     sorteio: random.Random,
 ) -> list[dict]:
@@ -205,11 +296,11 @@ def amostrar(
     do registro da base.
 
     - **par M3** — estima o falso positivo do limiar de similaridade.
-    - **par com tipo divergente** — o registro da base pareou com item que o repositório
-      não classificou como artigo. Costuma ser artigo depositado com ``dc.type`` errado,
-      e nesse caso o par é bom; mas pode ser o trabalho de conclusão do aluno depositado
-      com o DOI do artigo dele derivado, e nesse caso o artigo não está no repositório e
-      o par é falso positivo. A distinção é de julgamento, não de regra.
+    - **tese homônima** — o registro da base não pareou com candidato válido, mas existe
+      no repositório uma tese, dissertação ou trabalho de conclusão de mesmo título. Não
+      é par: o protocolo já o classificou como ausente. O estrato existe para medir o
+      erro dessa regra, que é o caso do artigo depositado com ``dc.type`` de tese e que
+      assim se perde. No primeiro turno de conferência, 1 dos 50 casos era isso.
     - **ausente** — estima o falso negativo do protocolo (item que está no repositório mas
       não pareou, por exemplo por título traduzido), que entra no artigo como margem de
       erro da cobertura.
@@ -234,11 +325,11 @@ def amostrar(
             }
         )
 
-    for par in sorteio.sample(pares_divergentes, min(TAMANHO_AMOSTRA, len(pares_divergentes))):
+    for par in sorteio.sample(pares_tese, min(TAMANHO_AMOSTRA, len(pares_tese))):
         url_base, url_alvo = url_do_par(par)
         linhas.append(
             {
-                "estrato": f"tipo divergente ({par['tipo_alvo']}, {par['etapa']})",
+                "estrato": f"tese homônima ({par['tipo_alvo']}, {par['etapa']})",
                 "fonte": par["fonte"],
                 "id_base": par["id_base"],
                 "titulo_base": par["titulo_base"],
@@ -277,6 +368,9 @@ def relatar(
     dados: str,
     resumos: list[dict],
     indice_ri: Indice,
+    n_teses: int,
+    fora_universo: dict[str, collections.Counter],
+    teses_homonimas: collections.Counter,
     tipos_alvo: collections.Counter,
     fora_do_recorte: int,
 ) -> None:
@@ -286,8 +380,29 @@ def relatar(
         "",
         "Gerado por `src/matching.py`. Os conjuntos ficam nos CSVs de `dados/`, não versionados.",
         "",
-        f"Candidatos no repositório: **{len(indice_ri.registros)}** itens, todos os anos "
-        "(`ri-todos.csv`). O recorte 2020–2025 delimita o universo das bases, não os candidatos.",
+        f"Candidatos no repositório: **{len(indice_ri.registros)}** itens de qualquer ano, "
+        f"depois de excluídas {n_teses} teses, dissertações e trabalhos de conclusão "
+        "(`ri-todos.csv`). O recorte 2020–2025 delimita o universo das bases, não os "
+        "candidatos: o artigo depositado com data divergente continua elegível.",
+        "",
+        "## Universo medido: documentos citáveis",
+        "",
+        "O universo é o das bases no recorte, restrito a artigo, revisão, trabalho de "
+        "congresso, capítulo de livro e data paper. O que ficou de fora:",
+        "",
+        "| fonte | tipo excluído | registros |",
+        "|---|---|---|",
+    ]
+    for fonte, contagem in fora_universo.items():
+        for tipo, n in contagem.most_common():
+            linhas.append(f"| {fonte} | {tipo or '(vazio)'} | {n} |")
+    linhas += [
+        "",
+        "Errata, editorial, carta, nota e resumo de congresso não são o produto que o "
+        "repositório deposita, e no primeiro turno de conferência apareceram casando pelo "
+        "título com o artigo homônimo já depositado — a errata de um artigo tem o título do "
+        "artigo, e o resumo de congresso também. Mantê-los no universo produzia par falso e "
+        "contaminava a cobertura nas duas direções.",
         "",
         "## Pares por etapa",
         "",
@@ -304,6 +419,32 @@ def relatar(
         )
 
     linhas += [
+        "",
+        "## Tese homônima: o artigo que o repositório não tem",
+        "",
+        "Registros das bases que não pareiam com candidato válido, mas para os quais existe "
+        "no repositório uma tese, dissertação ou trabalho de conclusão de **mesmo título**:",
+        "",
+        "| cotejo | registros |",
+        "|---|---|",
+    ]
+    for cotejo, n in teses_homonimas.most_common():
+        linhas.append(f"| {cotejo} | {n} |")
+    linhas += [
+        "",
+        "Não são pares, e sim ausências: o que está depositado é o trabalho acadêmico, não o "
+        "artigo dele derivado. Na UFRN a tese de engenharia costuma ser escrita em inglês com "
+        "o título do artigo, e parte dos trabalhos de conclusão traz nos metadados o próprio "
+        "DOI do artigo publicado. Aceitá-los como par afirmaria presença onde há ausência.",
+        "",
+        "É o mecanismo da lacuna que o estudo quer descrever: o fluxo de depósito do "
+        "repositório captura o que é obrigatório (tese, dissertação, trabalho de conclusão) e "
+        "não captura o artigo que dali sai.",
+        "",
+        "A regra tem erro conhecido e medido: dos 50 casos conferidos no primeiro turno, 1 era "
+        "artigo publicado depositado com `dc.type` de tese (arquivo em layout de editora, na "
+        "coleção de trabalhos de conclusão). A regra portanto **subestima** a cobertura em "
+        "cerca de 2% desses casos, e não a infla.",
         "",
         "## Pares fora do recorte do repositório",
         "",
@@ -323,13 +464,7 @@ def relatar(
         linhas.append(f"| {tipo or '(vazio)'} | {n} |")
     linhas += [
         "",
-        "Parte dos registros das bases pareia com item que o repositório **não** classificou "
-        "como artigo. Na inspeção, a maioria é artigo depositado com `dc.type` errado, tendo "
-        "o mesmo DOI e o mesmo título do registro da base, o que é achado sobre a qualidade "
-        "dos metadados do repositório, não erro do pareamento. O caso a distinguir é o do "
-        "trabalho de conclusão depositado com o DOI do artigo dele derivado: aí o artigo não "
-        "está no repositório e o par é falso positivo. Todos esses pares vão para a "
-        "conferência manual, em estrato próprio.",
+        "`conferenceObject` é o tipo correto do trabalho de congresso, não divergência.",
         "",
         "## Cardinalidade",
         "",
@@ -346,16 +481,21 @@ def relatar(
 
     linhas += [
         "",
-        "## Conferência manual pendente",
+        "## Conferência manual",
         "",
-        f"`validacao-manual.csv` traz três estratos, até {TAMANHO_AMOSTRA} linhas cada, "
-        f"sorteados com semente {SEMENTE}: pares da etapa M3, pares cujo item do repositório "
-        "não é do tipo artigo, e registros classificados como ausentes. O veredito é "
-        "preenchido à mão, item a item. A taxa de acerto dos M3 valida o limiar de "
-        "similaridade; a taxa de acerto dos pares de tipo divergente separa o artigo mal "
-        "classificado do trabalho de conclusão depositado com o DOI do artigo derivado; e a "
-        "taxa de itens encontrados entre os ausentes é o falso negativo do protocolo, que "
-        "entra no artigo como margem de erro da cobertura.",
+        "**Primeiro turno (113 linhas, `validacao-manual-r1.csv`), concluído.** Estratos: 13 "
+        "pares M3, os 50 pares de tipo divergente (censo, não amostra) e 50 ausentes. "
+        "Resultado: 7 pares corretos, 50 falsos positivos e 50 ausências confirmadas — nenhum "
+        "falso negativo em 50, o que põe o teto do intervalo de confiança de 95% do falso "
+        "negativo em 6% pela regra de três. Foi essa conferência que motivou as duas "
+        "correções acima: o filtro de documentos citáveis no universo e a exclusão das teses "
+        "do conjunto de candidatos. Triagem assistida por IA, confirmada pelo autor; a "
+        "evidência item a item está em `triagem-assistida.csv`.",
+        "",
+        f"**Segundo turno (`validacao-manual.csv`), pendente.** Três estratos, até "
+        f"{TAMANHO_AMOSTRA} linhas cada, sorteados com semente {SEMENTE}: pares da etapa M3, "
+        "registros com tese homônima no repositório e registros classificados como ausentes. "
+        "O veredito é preenchido à mão, item a item. Confere o protocolo já corrigido.",
         "",
     ]
 
@@ -366,18 +506,33 @@ def relatar(
 
 
 def executar(dados: str) -> None:
-    scopus = ler_csv(os.path.join(dados, "scopus-all.csv"))
-    wos = ler_csv(os.path.join(dados, "wos-all.csv"))
+    scopus_bruto = ler_csv(os.path.join(dados, "scopus-all.csv"))
+    wos_bruto = ler_csv(os.path.join(dados, "wos-all.csv"))
     ri = ler_csv(os.path.join(dados, "ri-todos.csv"))
-    print(f"universo: Scopus {len(scopus)}, WoS {len(wos)} | candidatos: RI {len(ri)}")
 
-    indice_ri = Indice(ri)
-    indice_wos = Indice(wos)
+    scopus, fora_scopus = filtrar_universo(scopus_bruto, CITAVEIS_SCOPUS)
+    wos, fora_wos = filtrar_universo(wos_bruto, CITAVEIS_WOS)
+    fora_universo = {"scopus": fora_scopus, "wos": fora_wos}
+
+    # tese, dissertação e TCC levam o título do artigo derivado: não são candidatos
+    candidatos = [r for r in ri if r["type"] not in TESES_RI]
+    teses = [r for r in ri if r["type"] in TESES_RI]
+
+    print(
+        f"universo citável: Scopus {len(scopus)}/{len(scopus_bruto)}, "
+        f"WoS {len(wos)}/{len(wos_bruto)}"
+    )
+    print(f"candidatos: RI {len(candidatos)} (excluídas {len(teses)} teses/dissertações/TCC)")
+
+    indice_ri = Indice(candidatos)
+    indice_teses = Indice(teses)
+    indice_wos = Indice(wos, CLASSE_BASE)  # cotejo entre bases: vocabulário de tipo é o delas
     resumos: list[dict] = []
     todos_m3: list[dict] = []
-    todos_divergentes: list[dict] = []
+    todas_teses: list[dict] = []
     todos_ausentes: list[dict] = []
     tipos_alvo: collections.Counter = collections.Counter()
+    teses_homonimas: collections.Counter = collections.Counter()
     fora_do_recorte = 0
 
     cotejos = [
@@ -392,13 +547,19 @@ def executar(dados: str) -> None:
         if saida_ausentes:  # os dois cotejos contra o repositório, não o de bases entre si
             escrever_csv(os.path.join(dados, saida_ausentes), ausentes, CAMPOS)
             todos_m3 += [p for p in pares if p["etapa"] == "M3"]
-            todos_divergentes += [p for p in pares if p["tipo_alvo"] != "article"]
             for a in ausentes:
                 todos_ausentes.append({**a, "fonte": fonte})
             tipos_alvo.update(p["tipo_alvo"] for p in pares)
             fora_do_recorte += sum(
                 1 for p in pares if not 2020 <= ano_de({"year": p["ano_alvo"]}) <= 2025
             )
+            # diagnóstico: o registro ausente tem tese homônima no repositório?
+            homonimas, _ = parear(ausentes, indice_teses, fonte)
+            escrever_csv(
+                os.path.join(dados, f"tese-homonima-{fonte}.csv"), homonimas, CAMPOS_PAR
+            )
+            teses_homonimas[cotejo] = len(homonimas)
+            todas_teses += homonimas
 
         alvos = collections.Counter(p["id_alvo"] for p in pares)
         resumos.append(
@@ -417,15 +578,37 @@ def executar(dados: str) -> None:
             f"ausentes {len(ausentes)}"
         )
 
-    validacao = amostrar(todos_m3, todos_divergentes, todos_ausentes, random.Random(SEMENTE))
+    # os ausentes com tese homônima já têm estrato próprio; o estrato "ausente" sorteia
+    # dos demais, para não conferir duas vezes o mesmo registro
+    com_tese = {p["id_base"] for p in todas_teses}
+    ausentes_puros = [a for a in todos_ausentes if a["source_id"] not in com_tese]
+
+    validacao = amostrar(todos_m3, todas_teses, ausentes_puros, random.Random(SEMENTE))
     caminho_validacao = os.path.join(dados, "validacao-manual.csv")
+    if os.path.exists(caminho_validacao):
+        anterior = ler_csv(caminho_validacao)
+        if any(linha.get("veredito", "").strip() for linha in anterior):
+            raise SystemExit(
+                f"{caminho_validacao} tem vereditos preenchidos. Renomeie o arquivo do turno "
+                "anterior antes de gerar uma nova amostra — sobrescrevê-lo apagaria a "
+                "conferência do pesquisador."
+            )
     with open(caminho_validacao, "w", encoding="utf-8", newline="") as f:
         w = csv.DictWriter(f, fieldnames=CAMPOS_VALIDACAO)
         w.writeheader()
         w.writerows(validacao)
     print(f"{len(validacao)} linhas para conferência manual -> {caminho_validacao}")
 
-    relatar(dados, resumos, indice_ri, tipos_alvo, fora_do_recorte)
+    relatar(
+        dados,
+        resumos,
+        indice_ri,
+        len(teses),
+        fora_universo,
+        teses_homonimas,
+        tipos_alvo,
+        fora_do_recorte,
+    )
 
 
 if __name__ == "__main__":
