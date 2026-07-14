@@ -77,7 +77,7 @@ São recortes distintos, e confundi-los produz viés.
 
 **Candidatos** — os itens do repositório de qualquer ano, **menos** teses, dissertações e trabalhos de conclusão (46.846 dos 54.450 itens), restando 7.604 candidatos. A exclusão não é de conveniência: na UFRN o trabalho acadêmico costuma levar o mesmo título do artigo dele derivado, muitas vezes redigido em inglês, e parte dos trabalhos de conclusão traz nos metadados o próprio DOI do artigo publicado. Aceitá-lo como par afirmaria que o artigo está no repositório quando o que está depositado é a tese. O registro cuja única correspondência é uma tese homônima é contado como **ausente**, e reportado à parte, porque é o mecanismo da lacuna que o estudo descreve: o fluxo de depósito captura o que é obrigatório e não captura o artigo que dali sai.
 
-A regra tem erro medido: dos 50 casos conferidos, 1 era artigo publicado depositado com `dc.type` de tese (arquivo em layout de editora, na coleção de trabalhos de conclusão). Ela subestima a cobertura em cerca de 2% desses casos, e não a infla.
+A regra tem erro conhecido, medido **por censo** e **corrigido**. O estrato de tese homônima foi conferido inteiro, e não por amostra: dos 47 registros, 45 são de fato a tese homônima e 2 — o mesmo artigo, indexado nas duas bases — são o artigo publicado depositado com `dc.type` de trabalho de conclusão, o arquivo em layout de editora na coleção de TCC. Como o censo identifica um a um os registros em que a regra erra, eles não permanecem como erro residual: voltam a contar como cobertos pela etapa **C** (seção 4), a partir de `correcoes-conferencia.csv`. A correção sobe a cobertura, isto é, corrige contra a hipótese do estudo.
 
 ## 4. Etapas de pareamento
 
@@ -88,9 +88,12 @@ Aplicadas em ordem, sem sobreposição. Um registro pareado em uma etapa não é
 | M1 | DOI normalizado | igualdade exata | aceito, sem restrição de ano ou classe |
 | M2 | título normalizado, ano e classe | título idêntico, diferença de ano menor ou igual a 1 e classe compatível | aceito |
 | M3 | título por similaridade, ano e classe | similaridade maior ou igual a 0,95, diferença de ano menor ou igual a 1 e classe compatível | conferido item a item |
+| C | conferência do pesquisador | o item do repositório é o artigo, depositado com `dc.type` de trabalho acadêmico | aceito, a partir de `correcoes-conferencia.csv` |
 | sem match | nenhuma | nenhuma etapa casou | classificado como ausente do RI |
 
 A tolerância de um ano acomoda a divergência entre a data de publicação online-first, registrada nas bases, e a data do fascículo, registrada no RI.
+
+A etapa **C** não é automática: é a decisão humana entrando no protocolo. Existe porque a regra que exclui o trabalho acadêmico dos candidatos erra num caso conhecido — o artigo depositado com o tipo errado —, e porque o estrato foi conferido por censo, o que permite identificar esse erro registro a registro em vez de deixá-lo como margem. Cada linha do arquivo de correções nomeia o registro, o handle e o motivo, e é auditável.
 
 **Classe de documento** (periódico, congresso, livro): as etapas por título exigem que a classe do registro da base e a do item do repositório sejam compatíveis. O trabalho apresentado em congresso leva o mesmo título do artigo de periódico que dele resulta: sem essa trava, três registros do CLEO 2021 pareavam com o artigo homônimo publicado na *Nature Communications* e depositado no repositório, afirmando a presença de um documento que não está lá. Classe desconhecida de um dos lados não desqualifica o par — metadado faltante do repositório não pode virar ausência do artigo. O M1 não sofre a restrição: o DOI é prova de identidade.
 
@@ -100,7 +103,7 @@ A tolerância de um ano acomoda a divergência entre a data de publicação onli
 
 A conferência dos pares (etapa M3 e tese homônima) é do pesquisador, item a item, abrindo o registro da base ao lado do handle do repositório. **O estrato dos ausentes do segundo turno foi julgado por triagem automatizada**, com autorização expressa do autor, que assumiu a responsabilidade pelo resultado; a procedência de cada veredito fica registrada no campo `origem_veredito` do CSV de validação, e o dado bruto que sustentou cada decisão, em `derivacao-ausentes.csv`. Não se afirma conferência humana onde ela não houve. Três estratos, até 50 linhas cada, sorteados com semente fixa:
 
-- **pares da etapa M3**, ou todos, se forem menos de 50. Mede o falso positivo do limiar de similaridade. Depois das três correções acima, restou **um único par M3 por base**: o estrato virou censo, e o limiar deixou de ser objeto de amostragem. A etapa M3 responde por 1 dos 910 pares da Scopus e 1 dos 833 da Web of Science, e o limiar de 0,95 fica registrado como está, sem revisão, por não ter efeito mensurável sobre a cobertura.
+- **pares da etapa M3**, ou todos, se forem menos de 50. Mede o falso positivo do limiar de similaridade. Depois das três correções acima, restou **um único par M3 por base**: o estrato virou censo, e o limiar deixou de ser objeto de amostragem. A etapa M3 responde por 1 dos 911 pares da Scopus e 1 dos 834 da Web of Science, e o limiar de 0,95 fica registrado como está, sem revisão, por não ter efeito mensurável sobre a cobertura.
 - **registros com tese homônima no repositório**, que o protocolo classificou como ausentes. Mede o erro da regra que exclui o trabalho acadêmico do conjunto de candidatos, isto é, o artigo que foi depositado com `dc.type` de tese e que assim se perde.
 - **registros classificados como ausentes**, procurados no repositório pelos caminhos que o pareamento **não** usa. Estima o falso negativo do protocolo, tipicamente o item de título traduzido ou de subtítulo divergente. A taxa entra no artigo como margem de erro da cobertura.
 

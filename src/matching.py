@@ -276,6 +276,61 @@ def parear(base: list[dict], indice: Indice, fonte: str) -> tuple[list[dict], li
     return pares, ausentes
 
 
+def ler_correcoes(dados: str) -> dict[tuple[str, str], str]:
+    """Pares que a conferência confirmou e que a regra das teses exclui.
+
+    A regra que tira tese, dissertação e TCC do conjunto de candidatos erra num caso:
+    o **artigo** depositado com ``dc.type`` de trabalho acadêmico. O erro foi medido
+    por censo — o estrato de tese homônima foi conferido inteiro, 47 de 47 —, de modo
+    que os registros em que a regra erra são conhecidos um a um, e não estimados. Estão
+    em ``correcoes-conferencia.csv``, e voltam a contar como cobertos.
+
+    A correção sobe a cobertura, isto é, corrige **contra** a hipótese do estudo. Sem
+    ela, o artigo publicaria como ausente um item que a própria conferência achou no
+    repositório.
+    """
+    caminho = os.path.join(dados, "correcoes-conferencia.csv")
+    if not os.path.exists(caminho):
+        return {}
+    return {(l["fonte"], l["id_base"]): l["handle"] for l in ler_csv(caminho)}
+
+
+def aplicar_correcoes(
+    pares: list[dict],
+    ausentes: list[dict],
+    fonte: str,
+    correcoes: dict[tuple[str, str], str],
+    por_handle: dict[str, dict],
+) -> tuple[list[dict], list[dict]]:
+    """Move para os pares o registro que a conferência confirmou estar no repositório."""
+    if not correcoes:
+        return pares, ausentes
+    restantes: list[dict] = []
+    for registro in ausentes:
+        handle = correcoes.get((fonte, registro["source_id"]))
+        alvo = por_handle.get(handle or "")
+        if not alvo:
+            restantes.append(registro)
+            continue
+        pares.append(
+            {
+                "fonte": fonte,
+                "id_base": registro["source_id"],
+                "id_alvo": alvo["source_id"],
+                "handle": alvo.get("handle", ""),
+                "etapa": "C",  # correção da conferência, não etapa automática
+                "similaridade": "1.0000",
+                "titulo_base": registro["title"],
+                "titulo_alvo": alvo["title"],
+                "ano_base": registro["year"],
+                "ano_alvo": alvo["year"],
+                "tipo_alvo": alvo["type"],
+                "doi": registro["doi"],
+            }
+        )
+    return pares, restantes
+
+
 def url_do_par(par: dict) -> tuple[str, str]:
     """Endereços para a conferência manual: o registro na base e o item no repositório."""
     url_base = f"https://doi.org/{par['doi']}" if par.get("doi") else ""
@@ -406,8 +461,8 @@ def relatar(
         "",
         "## Pares por etapa",
         "",
-        "| cotejo | universo | M1 (DOI) | M2 (título+ano) | M3 (fuzzy ≥ 0,95) | pareados | ausentes | cobertura |",
-        "|---|---|---|---|---|---|---|---|",
+        "| cotejo | universo | M1 (DOI) | M2 (título+ano) | M3 (fuzzy ≥ 0,95) | C (conferência) | pareados | ausentes | cobertura |",
+        "|---|---|---|---|---|---|---|---|---|",
     ]
     for r in resumos:
         etapas = r["etapas"]
@@ -415,7 +470,8 @@ def relatar(
         cobertura = 100 * pareados / r["universo"] if r["universo"] else 0
         linhas.append(
             f"| {r['cotejo']} | {r['universo']} | {etapas['M1']} | {etapas['M2']} | "
-            f"{etapas['M3']} | {pareados} | {r['ausentes']} | {cobertura:.1f}% |"
+            f"{etapas['M3']} | {etapas['C']} | {pareados} | {r['ausentes']} | "
+            f"{cobertura:.2f}% |"
         )
 
     linhas += [
@@ -441,10 +497,14 @@ def relatar(
         "repositório captura o que é obrigatório (tese, dissertação, trabalho de conclusão) e "
         "não captura o artigo que dali sai.",
         "",
-        "A regra tem erro conhecido e medido: dos 50 casos conferidos no primeiro turno, 1 era "
-        "artigo publicado depositado com `dc.type` de tese (arquivo em layout de editora, na "
-        "coleção de trabalhos de conclusão). A regra portanto **subestima** a cobertura em "
-        "cerca de 2% desses casos, e não a infla.",
+        "A regra tem erro conhecido, medido **por censo** e **corrigido**. O estrato foi "
+        "conferido inteiro, e não por amostra: dos 47 casos, 45 são de fato a tese homônima, "
+        "e 2 registros (o mesmo artigo, indexado nas duas bases) são o artigo publicado "
+        "depositado com `dc.type` de trabalho de conclusão — arquivo em layout de editora, na "
+        "coleção de TCC. Como o censo identifica um a um os registros em que a regra erra, "
+        "eles não ficam como erro residual: voltam a contar como cobertos pela etapa **C**, a "
+        "partir de `correcoes-conferencia.csv`. A correção **sobe** a cobertura, isto é, "
+        "corrige contra a hipótese do estudo.",
         "",
         "## Pares fora do recorte do repositório",
         "",
@@ -492,10 +552,38 @@ def relatar(
         "do conjunto de candidatos. Triagem assistida por IA, confirmada pelo autor; a "
         "evidência item a item está em `triagem-assistida.csv`.",
         "",
-        f"**Segundo turno (`validacao-manual.csv`), pendente.** Três estratos, até "
-        f"{TAMANHO_AMOSTRA} linhas cada, sorteados com semente {SEMENTE}: pares da etapa M3, "
-        "registros com tese homônima no repositório e registros classificados como ausentes. "
-        "O veredito é preenchido à mão, item a item. Confere o protocolo já corrigido.",
+        f"**Segundo turno (99 linhas, `validacao-manual.csv`), concluído.** Confere o "
+        f"protocolo corrigido. Três estratos, sorteados com semente {SEMENTE}: 2 pares da "
+        "etapa M3 (censo — a correção do protocolo derrubou o M3 a um par por base), 47 "
+        "registros com tese homônima e 50 ausentes, este um sorteio novo, sem sobreposição "
+        "com o do primeiro turno, porque a correção mudou o conjunto de ausentes.",
+        "",
+        "**Procedência dos vereditos, que é diferente nos dois blocos e assim precisa ser "
+        "dita no artigo.** Os 49 pares de tese homônima e de etapa M3 trazem o veredito que "
+        "o autor deu no primeiro turno, sobre exatamente os mesmos pares. Os 50 do estrato "
+        "dos ausentes foram julgados por **triagem automatizada, com autorização expressa do "
+        "autor em 14/07/2026**, que assumiu a responsabilidade: **não** houve conferência "
+        "humana item a item nesse bloco. O campo `origem_veredito` registra isso linha a "
+        "linha, e a evidência de cada decisão está em `triagem-assistida.csv` e "
+        "`derivacao-ausentes.csv`.",
+        "",
+        "**Resultado: nenhum falso negativo em 50.** Nenhum DOI dos registros dados como "
+        "ausentes aparece no índice de busca do repositório, e nenhum item não acadêmico de "
+        "título próximo foi devolvido. Mantido o teto de 6% no intervalo de confiança de "
+        "95%, pela regra de três.",
+        "",
+        "Examinado o trabalho acadêmico que a busca devolveu em cada um dos 50 ausentes: em "
+        "6 o repositório guarda a tese ou o TCC **de onde o artigo saiu**; em 6, outro "
+        "trabalho do mesmo autor; em 35, trabalho de **autor homônimo, sem relação nenhuma** "
+        "(a busca por nome puxa o homônimo com facilidade — o artigo de física de partículas "
+        "veio acompanhado de uma tese sobre ácido α-lipoico em ratas); em 3, nada. Em nenhum "
+        "deles o artigo está no repositório. O mecanismo da lacuna se demonstra, portanto, no "
+        "estrato da **tese homônima**, e não neste.",
+        "",
+        "A derivação, quando existe, não se decide por similaridade: o título vertido para o "
+        "português tem, contra o título em inglês do artigo, a mesma similaridade de dois "
+        "trabalhos sem relação (0,3 a 0,5). Ela também não altera a cobertura — a tese não é "
+        "candidato, e o registro segue ausente de qualquer modo.",
         "",
     ]
 
@@ -541,8 +629,15 @@ def executar(dados: str) -> None:
         ("scopus-wos", "scopus", scopus, indice_wos, "match-scopus-wos.csv", None),
     ]
 
+    correcoes = ler_correcoes(dados)
+    por_handle = {r.get("handle", ""): r for r in ri if r.get("handle")}
+    if correcoes:
+        print(f"correções da conferência: {len(correcoes)} registro(s) confirmados no RI")
+
     for cotejo, fonte, base, indice, saida_pares, saida_ausentes in cotejos:
         pares, ausentes = parear(base, indice, fonte)
+        if saida_ausentes:  # só o cotejo contra o repositório tem conferência
+            pares, ausentes = aplicar_correcoes(pares, ausentes, fonte, correcoes, por_handle)
         escrever_csv(os.path.join(dados, saida_pares), pares, CAMPOS_PAR)
         if saida_ausentes:  # os dois cotejos contra o repositório, não o de bases entre si
             escrever_csv(os.path.join(dados, saida_ausentes), ausentes, CAMPOS)
@@ -566,7 +661,7 @@ def executar(dados: str) -> None:
             {
                 "cotejo": cotejo,
                 "universo": len(base),
-                "etapas": collections.Counter({"M1": 0, "M2": 0, "M3": 0})
+                "etapas": collections.Counter({"M1": 0, "M2": 0, "M3": 0, "C": 0})
                 + collections.Counter(p["etapa"] for p in pares),
                 "ausentes": len(ausentes),
                 "reusados": sum(1 for n in alvos.values() if n > 1),
@@ -585,19 +680,20 @@ def executar(dados: str) -> None:
 
     validacao = amostrar(todos_m3, todas_teses, ausentes_puros, random.Random(SEMENTE))
     caminho_validacao = os.path.join(dados, "validacao-manual.csv")
+    conferido = False
     if os.path.exists(caminho_validacao):
         anterior = ler_csv(caminho_validacao)
-        if any(linha.get("veredito", "").strip() for linha in anterior):
-            raise SystemExit(
-                f"{caminho_validacao} tem vereditos preenchidos. Renomeie o arquivo do turno "
-                "anterior antes de gerar uma nova amostra — sobrescrevê-lo apagaria a "
-                "conferência do pesquisador."
-            )
-    with open(caminho_validacao, "w", encoding="utf-8", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=CAMPOS_VALIDACAO)
-        w.writeheader()
-        w.writerows(validacao)
-    print(f"{len(validacao)} linhas para conferência manual -> {caminho_validacao}")
+        conferido = any(linha.get("veredito", "").strip() for linha in anterior)
+    if conferido:
+        # a conferência já foi feita sobre esta amostra: regravá-la apagaria o veredito
+        # do pesquisador. O resto do relatório é recalculado normalmente.
+        print(f"AVISO: {caminho_validacao} tem veredito preenchido; a amostra não foi regravada.")
+    else:
+        with open(caminho_validacao, "w", encoding="utf-8", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=CAMPOS_VALIDACAO)
+            w.writeheader()
+            w.writerows(validacao)
+        print(f"{len(validacao)} linhas para conferência manual -> {caminho_validacao}")
 
     relatar(
         dados,
