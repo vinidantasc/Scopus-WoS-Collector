@@ -545,12 +545,32 @@ def relatar(
         "",
         "**Primeiro turno (113 linhas, `validacao-manual-r1.csv`), concluído.** Estratos: 13 "
         "pares M3, os 50 pares de tipo divergente (censo, não amostra) e 50 ausentes. "
-        "Resultado: 7 pares corretos, 50 falsos positivos e 50 ausências confirmadas — nenhum "
-        "falso negativo em 50, o que põe o teto do intervalo de confiança de 95% do falso "
-        "negativo em 6% pela regra de três. Foi essa conferência que motivou as duas "
-        "correções acima: o filtro de documentos citáveis no universo e a exclusão das teses "
-        "do conjunto de candidatos. Triagem assistida por IA, confirmada pelo autor; a "
-        "evidência item a item está em `triagem-assistida.csv`.",
+        "Resultado: **7 pares corretos, 56 falsos positivos e 50 ausências confirmadas**. Foi "
+        "essa conferência que motivou as duas correções acima: o filtro de documentos "
+        "citáveis no universo e a exclusão das teses do conjunto de candidatos. Triagem "
+        "assistida por IA, confirmada pelo autor; a evidência item a item está em "
+        "`triagem-assistida.csv`.",
+        "",
+        "Detalhe por estrato, que é o que justifica a correção do protocolo:",
+        "",
+        "| estrato do 1º turno | n | veredito |",
+        "|---|---|---|",
+        "| pares M3 (similaridade ≥ 0,95) | 13 | 2 corretos, 6 falsos positivos por tese "
+        "homônima, 5 pares incorretos |",
+        "| tipo divergente, tese/TCC (censo) | 47 | 45 tese homônima, 2 artigos depositados "
+        "com `dc.type` errado |",
+        "| tipo divergente, `conferenceObject` (censo) | 3 | 3 corretos (tipo certo do "
+        "trabalho de congresso, não divergência) |",
+        "| ausentes (amostra) | 50 | 50 ausências confirmadas |",
+        "",
+        "**O M3 errou 11 de 13** no protocolo anterior, taxa de falso positivo de 85% num "
+        "estrato conferido por censo. Não era ruído do limiar de 0,95, e sim ausência das "
+        "duas travas que a correção introduziu: a compatibilidade de classe (periódico com "
+        "periódico, congresso com congresso) e a exclusão do trabalho acadêmico do conjunto "
+        "de candidatos. Sem elas, o título do artigo casava ora com a tese homônima, ora com "
+        "o artigo homônimo de outra revista. Depois da correção o M3 caiu a **um par por "
+        "base**, com similaridade 0,9959, conferido por censo no segundo turno e correto nos "
+        "dois casos. É a medida que sustenta manter o limiar de 0,95 como está.",
         "",
         f"**Segundo turno (99 linhas, `validacao-manual.csv`), concluído.** Confere o "
         f"protocolo corrigido. Três estratos, sorteados com semente {SEMENTE}: 2 pares da "
@@ -567,10 +587,31 @@ def relatar(
         "linha, e a evidência de cada decisão está em `triagem-assistida.csv` e "
         "`derivacao-ausentes.csv`.",
         "",
-        "**Resultado: nenhum falso negativo em 50.** Nenhum DOI dos registros dados como "
-        "ausentes aparece no índice de busca do repositório, e nenhum item não acadêmico de "
-        "título próximo foi devolvido. Mantido o teto de 6% no intervalo de confiança de "
-        "95%, pela regra de três.",
+        "**Resultado: nenhum falso negativo em 50.** Nenhum item não acadêmico de título "
+        "próximo foi devolvido pela busca, e nenhum registro dado como ausente tem DOI de "
+        "candidato do repositório. Teto de 6% no intervalo de confiança de 95%, pela regra "
+        "de três.",
+        "",
+        "**Três DOIs de ausentes existem no repositório, e não são falso negativo.** Estão "
+        "nos metadados de um TCC — os handles 45999 e 50701 —, que carrega o DOI do artigo "
+        "de que derivou. O TCC não é candidato, de modo que o artigo segue ausente e os três "
+        "registros já estão no estrato de tese homônima, conferidos. É a demonstração mais "
+        "limpa do mecanismo da lacuna: o repositório guarda o DOI do artigo que não guarda.",
+        "",
+        "**Onde o teto de 6% de fato incide — e onde não incide.** A verificação por censo "
+        "mostra que **nenhum** dos 11.084 ausentes da Scopus que têm DOI (nem dos 9.362 da "
+        "WoS) carrega DOI de algum candidato do repositório. Isso não é uma segunda medida "
+        "de falso negativo: é a prova de que a etapa M1 foi exaustiva, e nada mais. O que "
+        "resta é o seguinte, e precisa ser dito assim na limitação do artigo.",
+        "",
+        "O falso negativo só pode existir onde o pareamento depende do título, isto é, "
+        "quando o item está no repositório **sem DOI recuperável** e com título divergente "
+        "do da base. São **3.130 dos 7.604 candidatos** que não têm DOI em nenhum campo "
+        "`dc.identifier.*`, dos quais **1.651 são do tipo `article`**. É sobre esse "
+        "subconjunto, e só sobre ele, que o teto de 6% se aplica. Nos registros das bases "
+        "pareáveis por DOI — 98,2% do universo citável da Scopus e 96,4% do da WoS — a "
+        "cobertura não depende de amostra nem de limiar de similaridade: é verificada por "
+        "identidade, um a um, no censo.",
         "",
         "Examinado o trabalho acadêmico que a busca devolveu em cada um dos 50 ausentes: em "
         "6 o repositório guarda a tese ou o TCC **de onde o artigo saiu**; em 6, outro "
