@@ -8,13 +8,24 @@ artigo e como conference paper, e o repositório tem depósitos repetidos), e
 imprime, em Markdown, os números que entram em dados/COLETA.md e na seção de
 metodologia do artigo: total por fonte e ano, registros sem DOI e duplicatas
 removidas.
+
+O repositório rende dois arquivos, com papéis distintos:
+
+- ``ri-all.csv``   — recorte 2020–2025, comparável ao universo das bases, usado nas
+  tabelas de totais;
+- ``ri-todos.csv`` — toda a extensão temporal do repositório, usado como conjunto de
+  candidatos no pareamento. O recorte delimita o que se mede (a produção indexada no
+  período), não o que serve de candidato: o artigo publicado em 2020 e depositado com
+  data divergente está no repositório e não pode ser contado como ausente.
 """
 
 from __future__ import annotations
 
 import argparse
 import collections
+import glob
 import os
+import re
 
 from common import CAMPOS, CAMPOS_RI, escrever_csv, ler_csv
 
@@ -39,12 +50,24 @@ def deduplicar(registros: list[dict]) -> tuple[list[dict], int, int]:
     return limpos, dup_id, dup_doi
 
 
+def fatias(fonte: str, dados: str, de: int, ate: int) -> list[str]:
+    """Fatias anuais a consolidar.
+
+    As duas bases são consultadas apenas no recorte do estudo. O repositório é lido
+    em toda a extensão que houver sido coletada, porque é o lado candidato do
+    pareamento (ver docstring do módulo).
+    """
+    if fonte != "ri":
+        return [os.path.join(dados, f"{fonte}-{ano}.csv") for ano in range(de, ate + 1)]
+    achadas = glob.glob(os.path.join(dados, "ri-[0-9][0-9][0-9][0-9].csv"))
+    return sorted(achadas, key=lambda c: int(re.search(r"(\d{4})\.csv$", c).group(1)))
+
+
 def consolidar(fonte: str, dados: str, de: int, ate: int) -> dict | None:
     """Junta as fatias anuais de uma fonte, deduplica e grava <fonte>-all.csv."""
     campos = CAMPOS_RI if fonte == "ri" else CAMPOS
     registros: list[dict] = []
-    for ano in range(de, ate + 1):
-        caminho = os.path.join(dados, f"{fonte}-{ano}.csv")
+    for caminho in fatias(fonte, dados, de, ate):
         if not os.path.exists(caminho):
             print(f"  ausente: {caminho}")
             continue
@@ -55,6 +78,9 @@ def consolidar(fonte: str, dados: str, de: int, ate: int) -> dict | None:
     limpos, dup_id, dup_doi = deduplicar(registros)
     dentro, fora = recortar(limpos, de, ate)
     escrever_csv(os.path.join(dados, f"{fonte}-all.csv"), dentro, campos)
+    if fonte == "ri":
+        # universo de candidatos do pareamento: o repositório inteiro, sem recorte
+        escrever_csv(os.path.join(dados, "ri-todos.csv"), limpos, campos)
     return {
         "fonte": fonte,
         "por_ano": collections.Counter(int(r["year"]) for r in dentro),
@@ -65,6 +91,7 @@ def consolidar(fonte: str, dados: str, de: int, ate: int) -> dict | None:
         "fora": collections.Counter(r["year"] for r in fora),
         "sem_doi": sum(1 for r in dentro if not r["doi"]),
         "tipos": collections.Counter(r["type"] for r in dentro),
+        "candidatos": len(limpos) if fonte == "ri" else 0,
     }
 
 
@@ -99,8 +126,19 @@ def relatar(resumos: list[dict], de: int, ate: int) -> None:
     print("|---|---|---|---|---|---|")
     for r in resumos:
         fora = sum(r["fora"].values())
-        detalhe = f"{fora}" + (f" ({', '.join(sorted(r['fora']))})" if fora else "")
+        anos = sorted(r["fora"])
+        # o repositório cai fora do recorte por dezenas de anos; listá-los não informa
+        rotulo = f"{anos[0]}–{anos[-1]}" if r["fonte"] == "ri" else ", ".join(anos)
+        detalhe = f"{fora}" + (f" ({rotulo})" if fora else "")
         print(f"| {r['fonte']} | {r['bruto']} | {r['dup_id']} | {r['dup_doi']} | {detalhe} | {r['final']} |")
+
+    for r in resumos:
+        if r["candidatos"]:
+            print(
+                f"\nCandidatos do pareamento (repositório inteiro, sem recorte): "
+                f"**{r['candidatos']}** itens em `ri-todos.csv`. O recorte 2020–2025 "
+                f"({r['final']} itens, `ri-all.csv`) serve às tabelas de totais."
+            )
 
     print("\n## Registros sem DOI\n")
     print("| fonte | sem DOI | % do universo |")

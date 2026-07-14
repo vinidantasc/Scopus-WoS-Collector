@@ -1,11 +1,20 @@
 """Coleta no Repositório Institucional da UFRN (DSpace 7, API REST pública).
 
     python3 src/coleta_ri.py --ano 2020 --saida /caminho/dados/ri-2020.csv
+    python3 src/coleta_ri.py --de 1960 --ate 2026 --dados /caminho/dados
 
 Baixa o universo de itens do repositório com data de publicação no ano, um CSV por
 ano, no mesmo formato das duas bases. O pareamento é feito depois, localmente,
 sobre esses arquivos: consultar o repositório registro a registro multiplicaria as
 requisições e produziria falso negativo por variação de grafia.
+
+O repositório é coletado em toda a sua extensão temporal, e não apenas no recorte
+2020–2025 do estudo, porque ele é o lado *candidato* do pareamento. O recorte
+delimita o universo das bases, que é o que se mede; restringi-lo também do lado do
+repositório faria o artigo depositado com data divergente da data de publicação na
+base contar como ausente, e a defasagem seria superestimada. O ano do depósito é
+irrelevante, em particular, para o pareamento por DOI: um DOI encontrado no
+repositório prova que o item está lá, qualquer que seja a data registrada.
 
 A coleta é fatiada por ano também porque a busca Discovery roda sobre Solr, e a
 paginação profunda sobre dezenas de milhares de itens é onde ela falha.
@@ -19,6 +28,7 @@ dc.identifier.citation ou dc.identifier.other.
 from __future__ import annotations
 
 import argparse
+import os
 import time
 
 from common import (
@@ -114,8 +124,26 @@ def coletar(ano: int, saida: str, refazer: bool) -> list[dict]:
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--ano", type=int, required=True)
-    p.add_argument("--saida", required=True)
+    p.add_argument("--ano", type=int, help="coleta um único ano (exige --saida)")
+    p.add_argument("--de", type=int, help="primeiro ano de um intervalo (exige --dados)")
+    p.add_argument("--ate", type=int, help="último ano do intervalo")
+    p.add_argument("--saida", help="CSV de saída, no modo --ano")
+    p.add_argument("--dados", help="diretório de saída, no modo --de/--ate")
     p.add_argument("--refazer", action="store_true", help="ignora as respostas já salvas em raw/")
     a = p.parse_args()
-    coletar(a.ano, a.saida, a.refazer)
+
+    if a.ano is not None:
+        if not a.saida:
+            p.error("--ano exige --saida")
+        coletar(a.ano, a.saida, a.refazer)
+    elif a.de is not None and a.ate is not None:
+        if not a.dados:
+            p.error("--de/--ate exigem --dados")
+        for ano in range(a.de, a.ate + 1):
+            # ano sem item nenhum custa uma requisição e nenhum arquivo; a extensão
+            # temporal do repositório não é conhecida de antemão
+            registros = coletar(ano, os.path.join(a.dados, f"ri-{ano}.csv"), a.refazer)
+            if not registros:
+                os.remove(os.path.join(a.dados, f"ri-{ano}.csv"))
+    else:
+        p.error("informe --ano ou --de/--ate")
