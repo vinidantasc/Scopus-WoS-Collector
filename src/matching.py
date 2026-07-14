@@ -633,7 +633,11 @@ def relatar(
         "revisão não está no repositório. O par volta a ser ausência pelo "
         "`falsos-positivos-conferencia.csv`, o que **desce** a cobertura — corrige a favor "
         "da hipótese, e por isso entra registro a registro, com o veredito do conferente, "
-        "nunca por regra automática.",
+        "nunca por regra automática. O censo inteiro está em `censo-titulo.csv` (gerado por "
+        "`src/censo_titulo.py`): 28 pares, 26 corretos e 2 reprovados, cada um com o DOI dos "
+        "dois lados e o diagnóstico da divergência. Em 16 deles o repositório depositou o "
+        "item **sem DOI algum**, e o título é a única via de pareamento — que é a razão de o "
+        "estrato existir.",
         "",
         "**Nos outros 13 pares de cada base a divergência de DOI é do repositório, não do "
         "pareamento.** O DOI do item depositado aparece truncado (`10.1016/j.msec.2020`), "
