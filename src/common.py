@@ -19,6 +19,7 @@ import json
 import os
 import re
 import time
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -32,6 +33,8 @@ ESPERAS = (30, 60, 120)  # backoff em segundos após 429 ou 5xx
 TIMEOUT = 60
 
 _DOI_RE = re.compile(r"10\.\d{4,9}/[^\s\"'<>,;]+")
+_TAG_RE = re.compile(r"<[^>]+>")
+_NAO_ALFANUM_RE = re.compile(r"[^a-z0-9]+")
 _PREFIXOS_DOI = (
     "https://doi.org/",
     "http://doi.org/",
@@ -73,6 +76,30 @@ def normalizar_doi(valor: str | None) -> str:
     # DOI foi depositado truncado no prefixo do editor, sem sufixo (10.29327/), e o
     # que sobra da limpeza deixaria de ser um identificador
     return doi if _DOI_RE.fullmatch(doi) else ""
+
+
+def normalizar_titulo(valor: str | None) -> str:
+    """Reduz o título à forma comparável usada como chave secundária de pareamento.
+
+    Minúsculas, sem acentos (NFKD), sem marcação e sem pontuação, restando apenas
+    letras, dígitos e espaços simples. A marcação existe porque a Scopus devolve
+    fórmulas e símbolos em títulos com tags (<inf>, <sup>, <math>), que o
+    repositório grava como texto plano; sem removê-las, o mesmo trabalho teria dois
+    títulos diferentes.
+    """
+    if not valor:
+        return ""
+    texto = _TAG_RE.sub(" ", str(valor))
+    texto = unicodedata.normalize("NFKD", texto.lower())
+    texto = "".join(c for c in texto if not unicodedata.combining(c))
+    texto = _NAO_ALFANUM_RE.sub(" ", texto)
+    return " ".join(texto.split())
+
+
+def ano_de(registro: dict) -> int:
+    """Ano do registro como inteiro; 0 quando ausente ou malformado."""
+    valor = (registro.get("year") or "").strip()
+    return int(valor) if valor.isdigit() and len(valor) == 4 else 0
 
 
 def get_json(url: str, params: dict, headers: dict | None = None) -> dict:
