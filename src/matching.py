@@ -79,7 +79,7 @@ import difflib
 import os
 import random
 
-from common import CAMPOS, ano_de, escrever_csv, ler_csv, normalizar_titulo
+from common import CAMPOS, ano_de, escrever_csv, ler_csv, normalizar_doi, normalizar_titulo
 
 LIMIAR_M3 = 0.95  # similaridade mínima aceita na etapa fuzzy
 TOLERANCIA_ANO = 1  # |Δano| aceito nas etapas por título
@@ -178,6 +178,9 @@ class Indice:
         self.registros = registros
         self.classes = classes
         self.por_doi: dict[str, int] = {}
+        # DOI que o candidato não trouxe no depósito e que o censo recuperou no Crossref;
+        # separado do por_doi para que a etapa R seja distinguível do M1 (ver executar)
+        self.por_doi_recuperado: dict[str, int] = {}
         self.por_titulo: dict[str, list[int]] = collections.defaultdict(list)
         self.por_token: dict[str, list[int]] = collections.defaultdict(list)
         self.titulos: list[str] = []
@@ -199,6 +202,18 @@ class Indice:
 
         teto = max(1, int(FREQUENCIA_MAXIMA_TOKEN * len(registros)))
         self.tokens_frequentes = {t for t, ids in self.por_token.items() if len(ids) > teto}
+
+    def indexar_recuperados(self, doi_por_handle: dict[str, str]) -> None:
+        """Registra os DOI que o censo recuperou no Crossref para os candidatos sem DOI.
+
+        Habilita a etapa R: o registro da base cujo DOI cai aqui está no repositório num
+        item depositado sem identificador, invisível às etapas M1, M2 e M3. É a medida do
+        falso negativo por identidade, e não mais por amostra.
+        """
+        for i, r in enumerate(self.registros):
+            doi = doi_por_handle.get(r.get("handle", ""))
+            if doi and doi not in self.por_doi:
+                self.por_doi_recuperado.setdefault(doi, i)
 
     def compativel(self, i: int, ano_base: int, classe_base: str = "") -> bool:
         """Ano dentro da tolerância e classe de documento compatível.
@@ -259,6 +274,11 @@ def parear(base: list[dict], indice: Indice, fonte: str) -> tuple[list[dict], li
             if melhor is not None and similaridade_melhor >= LIMIAR_M3:
                 achado = (melhor, "M3", similaridade_melhor)
 
+        # etapa R: o item está no repositório sem DOI depositado, e o censo recuperou seu
+        # DOI no Crossref. Só age sobre quem escapou de M1/M2/M3, logo mede o falso negativo
+        if achado is None and registro["doi"] and registro["doi"] in indice.por_doi_recuperado:
+            achado = (indice.por_doi_recuperado[registro["doi"]], "R", 1.0)
+
         if achado is None:
             ausentes.append(registro)
             continue
@@ -284,6 +304,24 @@ def parear(base: list[dict], indice: Indice, fonte: str) -> tuple[list[dict], li
 
     assert len(pares) + len(ausentes) == len(base), "registro perdido no pareamento"
     return pares, ausentes
+
+
+def ler_doi_recuperado(dados: str) -> dict[str, str]:
+    """DOI que o censo do Crossref recuperou para candidatos depositados sem identificador.
+
+    Chave é o handle do item do repositório; valor, o DOI normalizado. Alimenta a etapa R
+    do pareamento. O arquivo é produzido por ``censo_ausentes.py`` e é opcional: sem ele o
+    pareamento roda como antes, apenas sem a medida por identidade do falso negativo.
+    """
+    caminho = os.path.join(dados, "censo-ausentes.csv")
+    if not os.path.exists(caminho):
+        return {}
+    recuperados: dict[str, str] = {}
+    for l in ler_csv(caminho):
+        doi = normalizar_doi(l.get("doi_recuperado"))
+        if doi and l.get("handle"):
+            recuperados[l["handle"]] = doi
+    return recuperados
 
 
 def ler_correcoes(dados: str) -> dict[tuple[str, str], str]:
@@ -469,6 +507,94 @@ def amostrar(
     return linhas
 
 
+def trabalhos_distintos(*caminhos: str) -> int:
+    """Nº de trabalhos distintos em CSVs de pares, unindo o mesmo trabalho das duas bases.
+
+    A chave é o DOI normalizado; na sua falta, o título normalizado. É o que impede contar
+    duas vezes o artigo que Scopus e WoS indexam cada uma com identificador próprio.
+    """
+    chaves: set[str] = set()
+    for caminho in caminhos:
+        if not os.path.exists(caminho):
+            continue
+        for linha in ler_csv(caminho):
+            doi = normalizar_doi(linha.get("doi"))
+            chaves.add(doi or normalizar_titulo(linha.get("titulo_base", "")))
+    return len(chaves)
+
+
+def texto_censo_fn(dados: str, resumos: list[dict], indice_ri: Indice) -> str:
+    """Parágrafo do MATCHING.md sobre o falso negativo medido pela etapa R."""
+    caminho = os.path.join(dados, "censo-ausentes.csv")
+    if not os.path.exists(caminho):
+        return (
+            "O censo do falso negativo (`censo-ausentes.csv`, gerado por "
+            "`src/censo_ausentes.py`) ainda não foi executado; sem ele a etapa R não age e o "
+            "teto do falso negativo fica na estimativa por amostra do segundo turno."
+        )
+    censo = ler_csv(caminho)
+    recuperados = sum(1 for l in censo if l.get("doi_recuperado"))
+    por_etapa = {r["cotejo"]: r["etapas"].get("R", 0) for r in resumos}
+    r_scopus = por_etapa.get("scopus-ri", 0)
+    r_wos = por_etapa.get("wos-ri", 0)
+    return (
+        "O falso negativo do pareamento só pode existir onde o item está no repositório "
+        "**sem DOI depositado** em nenhum campo `dc.identifier.*` e com título divergente do "
+        "da base — o caso, e não a exceção, quando o título foi vertido para o português (a "
+        "similaridade contra o título em inglês fica entre 0,3 e 0,5). Enquanto essa taxa era "
+        "estimada por amostra, o teto do intervalo de confiança incidia sobre todo o conjunto "
+        "dos ausentes, e era largo.\n\n"
+        f"O censo troca a amostra pela identidade. `src/censo_ausentes.py` percorre os "
+        f"**{len(censo)}** candidatos que o repositório depositou sem DOI, submete cada "
+        f"título ao Crossref, que guarda o registro na língua original, e recupera o "
+        f"identificador que o depósito não trouxe: **{recuperados}** DOI recuperados. A etapa "
+        "R do pareamento cruza esses DOI com os registros dados como ausentes, e o par que "
+        "surge é um item que **estava** no repositório e escapara de M1, M2 e M3 por causa do "
+        f"depósito sem identificador. Achados assim: **{r_scopus}** na Scopus e **{r_wos}** na "
+        "WoS. É a medida do falso negativo por identidade, um a um, e não mais por regra de "
+        "três sobre uma amostra. A etapa R **sobe** a cobertura, isto é, corrige contra a "
+        "hipótese do estudo, e por isso é defensável mesmo automatizada: um DOI recuperado no "
+        "Crossref e conferido contra o título depositado prova a presença, como o M1."
+    )
+
+
+def texto_censo_m1(dados: str) -> str:
+    """Parágrafo do MATCHING.md sobre o falso positivo do estrato M1."""
+    caminho = os.path.join(dados, "censo-m1.csv")
+    if not os.path.exists(caminho):
+        return (
+            "O censo do estrato M1 (`censo-m1.csv`, gerado por `src/censo_m1.py`) ainda não "
+            "foi executado."
+        )
+    censo = ler_csv(caminho)
+    fp = [l for l in censo if l["veredito"] == "falso positivo"]
+    corretos = sum(1 for l in censo if l["veredito"] == "par correto")
+    indet = sum(1 for l in censo if l["veredito"].startswith("indeterminado"))
+    handles_fp = sorted({l["handle"].split("/")[-1] for l in fp})
+    return (
+        "A etapa M1 aceita o par por igualdade de DOI, sob a premissa de que o DOI prova a "
+        "identidade. A conferência dos outros estratos falsificou a premissa — o item 32527 "
+        "leva o título de um artigo e, no campo `dc.identifier.doi`, o DOI de outro —, e o M1 "
+        "responde por mais de 98% dos pares, de modo que não podia ficar sem censo próprio. O "
+        "sinal do defeito é a divergência de título dentro do par por DOI. `src/censo_m1.py` "
+        f"tomou os **{len(censo)}** pares M1 cujo título diverge entre as pontas (similaridade "
+        "< 0,70) e resolveu no Crossref o título **do item do repositório**: se resolve no "
+        "mesmo DOI, ou num DOI de mesma autoria e paginação (as duas versões de idioma que o "
+        "periódico bilíngue de SciELO deposita com identificadores distintos), o par é "
+        "correto; se resolve num trabalho de autoria e paginação diferentes, o DOI depositado "
+        "é emprestado e o par é falso.\n\n"
+        f"Resultado: **{corretos} pares corretos** (a maioria, versão vernácula do mesmo "
+        f"trabalho), **{indet}** cujo título não resolve no Crossref e foram conferidos à mão "
+        f"pelo autor contra o título da base (todos traduções fiéis, pares legítimos) e "
+        f"**{len(fp)} falsos positivos**, nos handles {', '.join(handles_fp)}: o repositório "
+        "depositou um artigo com o DOI de outro, e o pareamento por esse DOI afirmava presença "
+        "onde há ausência. Voltam a ausente pelo `falsos-positivos-conferencia.csv`, registro "
+        "a registro, com autoria e paginação dos dois lados resolvidas no Crossref. A correção "
+        "**desce** a cobertura, corrige a favor da hipótese, e por isso é feita só por veredito "
+        "do conferente. O censo inteiro está em `censo-m1.csv`."
+    )
+
+
 def relatar(
     dados: str,
     resumos: list[dict],
@@ -480,6 +606,16 @@ def relatar(
     fora_do_recorte: int,
 ) -> None:
     """Grava dados/MATCHING.md, a proveniência da fase, com os números do artigo."""
+    censo_fn = texto_censo_fn(dados, resumos, indice_ri)
+    censo_m1_texto = texto_censo_m1(dados)
+    trabalhos_fora_janela = len(
+        {
+            normalizar_doi(p.get("doi")) or normalizar_titulo(p.get("titulo_base", ""))
+            for nome in ("match-scopus-ri.csv", "match-wos-ri.csv")
+            for p in ler_csv(os.path.join(dados, nome))
+            if p.get("ano_alvo", "").isdigit() and not 2020 <= int(p["ano_alvo"]) <= 2025
+        }
+    )
     linhas = [
         "# Fase 2 — pareamento (proveniência)",
         "",
@@ -511,8 +647,8 @@ def relatar(
         "",
         "## Pares por etapa",
         "",
-        "| cotejo | universo | M1 (DOI) | M2 (título+ano) | M3 (fuzzy ≥ 0,95) | C (conferência) | pareados | ausentes | cobertura |",
-        "|---|---|---|---|---|---|---|---|---|",
+        "| cotejo | universo | M1 (DOI) | M2 (título+ano) | M3 (fuzzy ≥ 0,95) | C (conferência) | R (DOI recuperado) | pareados | ausentes | cobertura |",
+        "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for r in resumos:
         etapas = r["etapas"]
@@ -520,7 +656,7 @@ def relatar(
         cobertura = 100 * pareados / r["universo"] if r["universo"] else 0
         linhas.append(
             f"| {r['cotejo']} | {r['universo']} | {etapas['M1']} | {etapas['M2']} | "
-            f"{etapas['M3']} | {etapas['C']} | {pareados} | {r['ausentes']} | "
+            f"{etapas['M3']} | {etapas['C']} | {etapas['R']} | {pareados} | {r['ausentes']} | "
             f"{cobertura:.2f}% |"
         )
 
@@ -536,7 +672,16 @@ def relatar(
     ]
     for cotejo, n in teses_homonimas.most_common():
         linhas.append(f"| {cotejo} | {n} |")
+    trabalhos_tese = trabalhos_distintos(
+        os.path.join(dados, "tese-homonima-scopus.csv"),
+        os.path.join(dados, "tese-homonima-wos.csv"),
+    )
+    total_reg_tese = sum(teses_homonimas.values())
     linhas += [
+        "",
+        f"São **{total_reg_tese} registros** das bases, que correspondem a **{trabalhos_tese} "
+        "trabalhos distintos** (o mesmo artigo indexado nas duas bases conta uma vez). O "
+        "número por cotejo é de registros; o do achado, de trabalhos.",
         "",
         "Não são pares, e sim ausências: o que está depositado é o trabalho acadêmico, não o "
         "artigo dele derivado. Na UFRN a tese de engenharia costuma ser escrita em inglês com "
@@ -558,12 +703,14 @@ def relatar(
         "",
         "## Pares fora do recorte do repositório",
         "",
-        f"**{fora_do_recorte}** pares têm o item do repositório depositado com data fora de "
-        "2020–2025, quase sempre o ano anterior ao da publicação na base. São artigos que "
-        "*estão* no repositório e que teriam sido contados como ausentes se o conjunto de "
-        "candidatos fosse o recorte, e não o repositório inteiro. É a medida do viés que a "
-        "ampliação do universo de candidatos evitou — viés que empurraria a defasagem para "
-        "cima, na direção da hipótese do estudo.",
+        f"**{fora_do_recorte}** pares — registros das bases — têm o item do repositório "
+        f"depositado com data fora de 2020–2025, o que corresponde a **{trabalhos_fora_janela} "
+        "trabalhos distintos** (o mesmo artigo indexado nas duas bases conta uma vez). É quase "
+        "sempre o ano anterior ao da publicação na base. São artigos que *estão* no "
+        "repositório e que teriam sido contados como ausentes se o conjunto de candidatos "
+        "fosse o recorte, e não o repositório inteiro. É a medida do viés que a ampliação do "
+        "universo de candidatos evitou — viés que empurraria a defasagem para cima, na direção "
+        "da hipótese do estudo.",
         "",
         "## Tipo do item pareado no repositório",
         "",
@@ -664,31 +811,17 @@ def relatar(
         "linha, e a evidência de cada decisão está em `triagem-assistida.csv` e "
         "`derivacao-ausentes.csv`.",
         "",
-        "**Resultado: nenhum falso negativo em 50.** Nenhum item não acadêmico de título "
-        "próximo foi devolvido pela busca, e nenhum registro dado como ausente tem DOI de "
-        "candidato do repositório. Teto de 6% no intervalo de confiança de 95%, pela regra "
-        "de três.",
+        "**Resultado da amostra: nenhum falso negativo em 50.** Nenhum item não acadêmico de "
+        "título próximo foi devolvido pela busca, e nenhum registro dado como ausente tem DOI "
+        "de candidato do repositório. A amostra sozinha punha o teto em 6% no intervalo de "
+        "confiança de 95%, pela regra de três, e sobre todo o conjunto dos ausentes. O censo "
+        "da etapa R, abaixo, substitui essa estimativa por uma medida por identidade.",
         "",
         "**Três DOIs de ausentes existem no repositório, e não são falso negativo.** Estão "
         "nos metadados de um TCC — os handles 45999 e 50701 —, que carrega o DOI do artigo "
         "de que derivou. O TCC não é candidato, de modo que o artigo segue ausente e os três "
         "registros já estão no estrato de tese homônima, conferidos. É a demonstração mais "
         "limpa do mecanismo da lacuna: o repositório guarda o DOI do artigo que não guarda.",
-        "",
-        "**Onde o teto de 6% de fato incide — e onde não incide.** A verificação por censo "
-        "mostra que **nenhum** dos 11.084 ausentes da Scopus que têm DOI (nem dos 9.362 da "
-        "WoS) carrega DOI de algum candidato do repositório. Isso não é uma segunda medida "
-        "de falso negativo: é a prova de que a etapa M1 foi exaustiva, e nada mais. O que "
-        "resta é o seguinte, e precisa ser dito assim na limitação do artigo.",
-        "",
-        "O falso negativo só pode existir onde o pareamento depende do título, isto é, "
-        "quando o item está no repositório **sem DOI recuperável** e com título divergente "
-        "do da base. São **3.130 dos 7.604 candidatos** que não têm DOI em nenhum campo "
-        "`dc.identifier.*`, dos quais **1.651 são do tipo `article`**. É sobre esse "
-        "subconjunto, e só sobre ele, que o teto de 6% se aplica. Nos registros das bases "
-        "pareáveis por DOI — 98,2% do universo citável da Scopus e 96,4% do da WoS — a "
-        "cobertura não depende de amostra nem de limiar de similaridade: é verificada por "
-        "identidade, um a um, no censo.",
         "",
         "Examinado o trabalho acadêmico que a busca devolveu em cada um dos 50 ausentes: em "
         "6 o repositório guarda a tese ou o TCC **de onde o artigo saiu**; em 6, outro "
@@ -702,6 +835,15 @@ def relatar(
         "português tem, contra o título em inglês do artigo, a mesma similaridade de dois "
         "trabalhos sem relação (0,3 a 0,5). Ela também não altera a cobertura — a tese não é "
         "candidato, e o registro segue ausente de qualquer modo.",
+        "",
+        "## Falso negativo medido por censo, não estimado por amostra (etapa R)",
+        "",
+        censo_fn,
+        "",
+        "## Falso positivo do estrato M1: o DOI depositado que pertence a outra publicação "
+        "(censo M1)",
+        "",
+        censo_m1_texto,
         "",
     ]
 
@@ -731,6 +873,10 @@ def executar(dados: str) -> None:
     print(f"candidatos: RI {len(candidatos)} (excluídas {len(teses)} teses/dissertações/TCC)")
 
     indice_ri = Indice(candidatos)
+    doi_recuperado = ler_doi_recuperado(dados)
+    if doi_recuperado:
+        indice_ri.indexar_recuperados(doi_recuperado)
+        print(f"censo do Crossref: {len(indice_ri.por_doi_recuperado)} DOI recuperados de candidatos sem identificador")
     indice_teses = Indice(teses)
     indice_wos = Indice(wos, CLASSE_BASE)  # cotejo entre bases: vocabulário de tipo é o delas
     resumos: list[dict] = []
@@ -784,7 +930,7 @@ def executar(dados: str) -> None:
             {
                 "cotejo": cotejo,
                 "universo": len(base),
-                "etapas": collections.Counter({"M1": 0, "M2": 0, "M3": 0, "C": 0})
+                "etapas": collections.Counter({"M1": 0, "M2": 0, "M3": 0, "C": 0, "R": 0})
                 + collections.Counter(p["etapa"] for p in pares),
                 "ausentes": len(ausentes),
                 "reusados": sum(1 for n in alvos.values() if n > 1),

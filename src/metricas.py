@@ -54,8 +54,8 @@ TOTAL_PERIODICOS = 20  # periódicos mais frequentes entre os ausentes, conforme
 
 # Totais publicados na fase 2. Servem de trava: a fase 3 recalcula tudo por outra via e
 # tem de reencontrá-los. Divergência é defeito, não descoberta.
-UNIVERSO_ESPERADO = {"scopus": 12209, "wos": 10571}
-COBERTOS_ESPERADO = {"scopus": 910, "wos": 833}
+UNIVERSO_ESPERADO = {"scopus": 12243, "wos": 10571}
+COBERTOS_ESPERADO = {"scopus": 910, "wos": 832}
 
 # Vocabulário comum das três fontes. O tipo da WoS é composto ("Article; Early Access",
 # "Article; Data Paper") e a família é o primeiro componente que se reconhece — a mesma
@@ -481,6 +481,13 @@ def relatar(dados: str, calculos: dict) -> None:
         "O tipo de documento organiza a defasagem. O artigo de periódico, que é o que o "
         "repositório de fato deposita, tem a cobertura mais alta; o trabalho de congresso e o "
         "capítulo de livro são quase inteiramente ausentes.",
+        "",
+        "Nota: a WoS declara tipos compostos, e a agregação por família soma à linha de "
+        "*artigo* alguns registros que a Scopus classificaria noutra linha — *Article; Book* "
+        "(40) e *Article; Data Paper* (14) no recorte. Por isso a WoS não tem célula própria "
+        "de capítulo de livro nem de data paper: esses documentos existem, mas embutidos na "
+        "família do artigo. A célula vazia (—) é universo inexistente naquela base, não "
+        "cobertura zero.",
         "",
         "## Tabela 5 — cobertura por exclusividade de base",
         "",
