@@ -1,0 +1,4 @@
+# Coleta, pareamento e métricas usam apenas a biblioteca padrão do Python 3.11+.
+# As dependências abaixo são necessárias somente para gerar as figuras.
+matplotlib>=3.8
+matplotlib-venn>=1.1

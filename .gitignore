@@ -1,0 +1,18 @@
+# Saídas de execução. Metadados coletados nas bases não são redistribuídos
+# (termos de uso Elsevier/Clarivate).
+data/
+figuras/
+*.csv
+*.json
+!requirements.txt
+
+# Credenciais
+.env
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.ipynb_checkpoints/

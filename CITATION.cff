@@ -1,0 +1,26 @@
+cff-version: 1.2.0
+title: Scopus-WoS-Collector
+message: >-
+  Se este software for usado, cite conforme os metadados abaixo.
+type: software
+authors:
+  - given-names: Vinicius
+    family-names: Carvalho
+    affiliation: Universidade Federal do Rio Grande do Norte
+    email: vinicius.carvalho@ufrn.br
+repository-code: https://github.com/vinidantasc/Scopus-WoS-Collector
+abstract: >-
+  Scripts de coleta via API (Scopus, Web of Science Starter e DSpace REST),
+  pareamento de registros por DOI e título e cálculo de métricas de cobertura,
+  usados para medir a defasagem de cobertura do Repositório Institucional da
+  UFRN frente à produção científica institucional indexada em Scopus e Web of
+  Science no período 2020-2025.
+keywords:
+  - repositório institucional
+  - interoperabilidade
+  - Scopus
+  - Web of Science
+  - DSpace
+  - cobertura
+  - produção científica
+license: MIT
