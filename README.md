@@ -10,7 +10,7 @@ Mede a cobertura do Repositório Institucional da UFRN (repositorio.ufrn.br, DSp
 
 1. **Coleta.** Consulta as três APIs (Scopus Search, Web of Science Starter e DSpace REST), fatiando por ano de publicação, e grava um CSV por fonte e ano.
 2. **Pareamento.** Para cada registro citável das bases, procura o item correspondente no RI por DOI normalizado, depois por título normalizado mais ano, depois por similaridade de título — estas duas últimas restritas a itens de classe compatível (periódico com periódico, congresso com congresso). Tese, dissertação e trabalho de conclusão não entram como candidatos: levam o título do artigo que deles deriva, e por vezes o próprio DOI, de modo que aceitá-los afirmaria a presença do artigo onde só está o trabalho acadêmico. Produz os conjuntos de cobertos, de ausentes e de registros cuja única correspondência é uma tese homônima.
-3. **Métricas e figuras.** Calcula cobertura global, por ano e por tipo de documento, além da sobreposição entre as bases, e gera as figuras do artigo.
+3. **Métricas e figuras.** Calcula cobertura global, por ano de publicação, por tipo de documento e por exclusividade de base, além da sobreposição entre as bases, e gera as figuras do artigo. A união das bases é contada em **trabalhos**, não em registros: Scopus e WoS identificam o mesmo trabalho de modos próprios, e o cotejo entre elas dá a correspondência. `deposito.py` recupera das respostas já coletadas a data de depósito de cada item do repositório (`dc.date.accessioned`), que é o que distingue a cobertura de um ano de publicação do momento em que o depósito ocorreu.
 
 ## Escopo do que está publicado aqui
 
@@ -50,6 +50,7 @@ python3 src/coleta_ri.py --de 1964 --ate 2026 --dados data/
 
 python3 src/consolida.py --dados data/ --de 2020 --ate 2025
 python3 src/matching.py  --dados data/
+python3 src/deposito.py  --dados data/
 python3 src/metricas.py  --dados data/
 python3 src/figuras.py   --dados data/ --saida figuras/
 ```
