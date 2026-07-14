@@ -96,9 +96,9 @@ A tolerância de um ano acomoda a divergência entre a data de publicação onli
 
 **Cardinalidade**: cada registro da base fica com um item do repositório, e o mesmo item pode ser reclamado por mais de um registro, o que ocorre quando há depósito duplicado no repositório ou quando a base traz o mesmo trabalho duas vezes. Impedir o reuso tornaria o resultado dependente da ordem de leitura dos arquivos.
 
-## 5. Validação manual
+## 5. Validação da amostra
 
-A conferência é do pesquisador, item a item, abrindo o registro da base ao lado do handle do repositório. Três estratos, até 50 linhas cada, sorteados com semente fixa:
+A conferência dos pares (etapa M3 e tese homônima) é do pesquisador, item a item, abrindo o registro da base ao lado do handle do repositório. **O estrato dos ausentes do segundo turno foi julgado por triagem automatizada**, com autorização expressa do autor, que assumiu a responsabilidade pelo resultado; a procedência de cada veredito fica registrada no campo `origem_veredito` do CSV de validação, e o dado bruto que sustentou cada decisão, em `derivacao-ausentes.csv`. Não se afirma conferência humana onde ela não houve. Três estratos, até 50 linhas cada, sorteados com semente fixa:
 
 - **pares da etapa M3**, ou todos, se forem menos de 50. Mede o falso positivo do limiar de similaridade. Depois das três correções acima, restou **um único par M3 por base**: o estrato virou censo, e o limiar deixou de ser objeto de amostragem. A etapa M3 responde por 1 dos 910 pares da Scopus e 1 dos 833 da Web of Science, e o limiar de 0,95 fica registrado como está, sem revisão, por não ter efeito mensurável sobre a cobertura.
 - **registros com tese homônima no repositório**, que o protocolo classificou como ausentes. Mede o erro da regra que exclui o trabalho acadêmico do conjunto de candidatos, isto é, o artigo que foi depositado com `dc.type` de tese e que assim se perde.
@@ -111,7 +111,9 @@ Duas regras de leitura da triagem, escolhidas para não fabricar vínculo nem es
 - **Derivação não se decide por similaridade.** O trabalho de conclusão que origina o artigo costuma estar depositado com o título vertido para o português, e a similaridade entre os dois títulos fica entre 0,3 e 0,5 — abaixo de qualquer limiar defensável, no mesmo patamar de duas teses sem relação nenhuma. A tese é listada com a busca que a devolveu, e quem julga o vínculo é o conferente. A decisão não altera a cobertura: a tese não é candidato, e o registro segue ausente de qualquer modo. Ela alimenta o mecanismo da lacuna, descrito no artigo.
 - **Falso negativo só pode vir de item não acadêmico.** Só nesse caso a triagem pede revisão do pareamento.
 
-O primeiro turno (113 linhas) validou o protocolo anterior e motivou as três correções acima. O segundo turno (99 linhas) confere o protocolo corrigido, sobre um sorteio novo de ausentes, já que a correção mudou esse conjunto. Nos dois turnos: nenhum falso negativo em 50 ausentes, o que põe o teto do intervalo de confiança de 95% em 6% pela regra de três. No segundo turno, 47 dos 50 ausentes têm no repositório a tese, a dissertação ou o TCC do autor, e não o artigo.
+O primeiro turno (113 linhas) validou o protocolo anterior e motivou as três correções acima. O segundo turno (99 linhas) confere o protocolo corrigido, sobre um sorteio novo de ausentes, já que a correção mudou esse conjunto. Nos dois turnos: **nenhum falso negativo em 50 ausentes**, o que põe o teto do intervalo de confiança de 95% em 6% pela regra de três.
+
+Examinado o trabalho acadêmico que a busca devolveu em cada um dos 50 ausentes do segundo turno, o repositório guarda a tese ou o TCC **de onde o artigo saiu** em 6 casos, outro trabalho do mesmo autor em 6, e trabalho de **autor homônimo, sem relação nenhuma**, em 35 — a busca por nome puxa o homônimo com facilidade, e tomá-lo por trabalho do autor inflaria o achado. O mecanismo da lacuna, portanto, se demonstra no estrato da **tese homônima**, onde 45 pares conferidos pelo autor são o trabalho acadêmico ocupando o lugar do artigo, e não neste.
 
 ## 6. Métricas
 
