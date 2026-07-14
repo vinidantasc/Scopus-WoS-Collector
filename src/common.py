@@ -68,7 +68,11 @@ def normalizar_doi(valor: str | None) -> str:
     m = _DOI_RE.search(texto)
     if not m:
         return ""
-    return m.group(0).rstrip(".,;)]")
+    doi = m.group(0).rstrip(".,;)]")
+    # revalida depois de aparar a pontuação final: o repositório tem itens em que o
+    # DOI foi depositado truncado no prefixo do editor, sem sufixo (10.29327/), e o
+    # que sobra da limpeza deixaria de ser um identificador
+    return doi if _DOI_RE.fullmatch(doi) else ""
 
 
 def get_json(url: str, params: dict, headers: dict | None = None) -> dict:
