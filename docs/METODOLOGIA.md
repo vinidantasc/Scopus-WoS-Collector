@@ -43,7 +43,7 @@ Campos extraídos por registro: `uid`, `identifiers.doi`, `title`, `source.publi
 - Endpoint `https://repositorio.ufrn.br/server/api/discover/search/objects`, público, sem autenticação.
 - Paginação `page` (base zero) mais `size=100`, com cortesia de 2 req/s.
 - Filtro de data por ano, `f.dateIssued=[2020 TO 2020],equals`, um CSV por ano, no mesmo formato das duas bases.
-- O repositório é baixado **por inteiro**, de 1964 a 2026, e não apenas no recorte de 2020 a 2025. O recorte delimita o universo *medido*, que é o das bases; os *candidatos* do pareamento são todos os itens do repositório (54.450), porque o artigo publicado dentro do recorte e depositado com data divergente está lá, e contá-lo como ausente superestimaria a defasagem justamente na direção da hipótese do estudo. Medido: 49 pares têm o item do repositório depositado fora da janela.
+- O repositório é baixado **por inteiro**, de 1964 a 2026, e não apenas no recorte de 2020 a 2025. O recorte delimita o universo *medido*, que é o das bases; os *candidatos* do pareamento são todos os itens do repositório (54.450), porque o artigo publicado dentro do recorte e depositado com data divergente está lá, e contá-lo como ausente superestimaria a defasagem justamente na direção da hipótese do estudo. Medido: 48 pares têm o item do repositório depositado fora da janela.
 - Os itens são baixados uma vez e o pareamento roda localmente, o que evita milhares de requisições e o erro do motor de indexação sobreposto ao erro que se quer medir.
 
 Campos extraídos por item: `uuid`, `handle`, DOI, `dc.title`, `dc.date.issued`, `dc.type`.
