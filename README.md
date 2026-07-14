@@ -36,17 +36,24 @@ Dependências de execução da coleta e do pareamento: biblioteca padrão do Pyt
 
 ## Uso
 
+Os três coletores têm a mesma interface, um ano por execução e um CSV por ano:
+
 ```bash
-python3 src/coleta_scopus.py --ano 2020 --saida data/scopus-2020.csv
-python3 src/coleta_wos.py    --ano 2020 --saida data/wos-2020.csv
-python3 src/coleta_ri.py     --de 2020 --ate 2025 --saida data/ri-2020-2025.csv
-python3 src/consolida.py     --entrada data/ --saida data/
-python3 src/matching.py      --bases data/ --ri data/ri-2020-2025.csv --saida data/
-python3 src/metricas.py      --entrada data/ --saida data/metricas.csv
-python3 src/figuras.py       --entrada data/metricas.csv --saida figuras/
+for ano in 2020 2021 2022 2023 2024 2025; do
+  python3 src/coleta_scopus.py --ano $ano --saida data/scopus-$ano.csv
+  python3 src/coleta_wos.py    --ano $ano --saida data/wos-$ano.csv
+  python3 src/coleta_ri.py     --ano $ano --saida data/ri-$ano.csv
+done
+
+python3 src/consolida.py --dados data/ --de 2020 --ate 2025
+python3 src/matching.py  --dados data/
+python3 src/metricas.py  --dados data/
+python3 src/figuras.py   --dados data/ --saida figuras/
 ```
 
-Cada script de coleta salva a resposta bruta antes de transformar, é reexecutável sem duplicar saída e retoma da última página em caso de erro de quota.
+`consolida.py` junta as fatias anuais de cada fonte, remove duplicatas e imprime, em Markdown, os totais que a metodologia do artigo declara.
+
+Cada script de coleta grava a resposta bruta em `data/raw/` antes de transformar. Uma página já gravada não é buscada de novo, de modo que a coleta retoma de onde parou depois de um erro de quota e a reexecução não duplica saída. Para forçar nova busca, use `--refazer`.
 
 ## Estrutura
 

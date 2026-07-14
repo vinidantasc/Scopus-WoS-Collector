@@ -8,7 +8,7 @@ Documento de referência do artigo. Registra as queries exatas, as regras de nor
 
 - Endpoint `https://api.elsevier.com/content/search/scopus`
 - Autenticação por header `X-ELS-APIKey`, a partir de rede institucional autorizada.
-- View `STANDARD`, `count=200`, paginação por cursor (`cursor=*`, seguindo `cursor/@next`).
+- View `STANDARD`, `count=25`, paginação por deslocamento (`start`).
 - Query, repetida para cada ano de 2020 a 2025:
 
 ```
@@ -16,6 +16,8 @@ AF-ID(60023857) AND PUBYEAR IS 2020
 ```
 
 `AF-ID 60023857` é o identificador de afiliação da UFRN na Scopus.
+
+A paginação não usa o parâmetro `cursor`, embora ele seja o recomendado para conjuntos grandes: a chave empregada não tem direito a ele e a requisição volta com `403 ENTITLEMENTS_ERROR`. O mesmo nível de serviço limita `count` a 25. Restou paginar por deslocamento, o que é seguro neste caso porque a janela de resultados da Scopus vai até 5.000 e a maior fatia anual da UFRN tem cerca de 2.300 registros. É esta a razão técnica de a coleta ser fatiada por ano, e não executada como consulta única do período.
 
 Campos extraídos por registro: `eid`, `prism:doi`, `dc:title`, ano (de `prism:coverDate`), `subtypeDescription`, `prism:publicationName`, `prism:issn`.
 
@@ -30,17 +32,22 @@ Campos extraídos por registro: `eid`, `prism:doi`, `dc:title`, ano (de `prism:c
 OG=(Universidade Federal do Rio Grande do Norte) AND PY=2020
 ```
 
-A variante de grafia da organização foi escolhida por teste prévio, comparando os totais retornados por cada forma. O teste e o total de cada variante estão registrados na seção de metodologia do artigo.
+A grafia da organização foi escolhida por teste prévio, comparando os totais devolvidos por cada forma no período completo. O nome por extenso recupera 11.271 registros e a forma abreviada `OG=(Univ Fed Rio Grande do Norte)` recupera 9.548. Delimitar a expressão entre aspas não altera o resultado do nome por extenso, que foi a variante adotada.
+
+Uma fatia anual da Web of Science devolve o trabalho tanto no ano da publicação antecipada quanto no ano do fascículo. Somadas as seis fatias, obtêm-se 12.111 registros, dos quais 840 são repetição do mesmo identificador em duas fatias, e restam 11.271 distintos, exatamente o total que a consulta do período inteiro anuncia. A deduplicação é feita pelo identificador `uid`, e o ano de cada registro, em todas as métricas, é o do campo `source.publishYear`, nunca o da fatia em que ele foi baixado.
 
 Campos extraídos por registro: `uid`, `identifiers.doi`, `title`, `source.publishYear`, `types`, `source.sourceTitle`, `identifiers.issn`.
 
 ### 1.3 Repositório Institucional da UFRN (DSpace REST)
 
 - Endpoint `https://repositorio.ufrn.br/server/api/discover/search/objects`, público, sem autenticação.
-- Paginação `page` mais `size=100`, com cortesia de 2 req/s.
+- Paginação `page` (base zero) mais `size=100`, com cortesia de 2 req/s.
+- Filtro de data por ano, `f.dateIssued=[2020 TO 2020],equals`, repetido de 2020 a 2025, um CSV por ano, no mesmo formato das duas bases.
 - O universo de itens do RI no período é baixado uma vez e o pareamento roda localmente, o que evita milhares de requisições e falsos negativos por variação de grafia.
 
-Campos extraídos por item: `uuid`, `handle`, DOI (extraído por expressão regular de todos os campos `dc.identifier.*`, já que o RI o armazena de forma inconsistente), `dc.title`, `dc.date.issued`, `dc.type`.
+Campos extraídos por item: `uuid`, `handle`, DOI, `dc.title`, `dc.date.issued`, `dc.type`.
+
+O DOI é procurado por expressão regular em todos os campos `dc.identifier.*`, e não apenas em `dc.identifier.doi`, porque o repositório o armazena de forma inconsistente. Em amostra de 500 itens do período, dos 32 itens do tipo `article`, 31 tinham DOI recuperável: 29 em `dc.identifier.doi` e os demais apenas dentro da string de `dc.identifier.citation` ou em `dc.identifier.other`. Ler somente o campo canônico perderia esses registros e superestimaria a defasagem.
 
 ## 2. Normalizações
 
