@@ -67,6 +67,8 @@ CAMPOS_SAIDA = [
     "similaridade",
     "sugestao_triagem",
     "evidencia",
+    "veredito_proposto",
+    "origem_veredito",
     "veredito",
 ]
 
@@ -276,8 +278,17 @@ def triar(registro: dict, autor: str, repositorio: list[dict]) -> dict:
         "similaridade": "",
         "sugestao_triagem": sugestao,
         "evidencia": "; ".join(notas),
+        "veredito_proposto": sugestao,
+        "origem_veredito": "",
         "veredito": "",
     }
+
+
+def _par(linha: dict) -> tuple[str, str, str]:
+    """Identidade do par conferido: registro da base × item do repositório."""
+    url = linha.get("url_alvo", "")
+    handle = url.rsplit("/handle/", 1)[-1] if "/handle/" in url else ""
+    return (linha["fonte"], linha["id_base"], handle)
 
 
 def executar(dados: str) -> None:
@@ -285,6 +296,15 @@ def executar(dados: str) -> None:
     anterior = {
         (l["fonte"], l["id_base"], l["url_alvo"]): l
         for l in ler_csv(os.path.join(dados, "triagem-assistida.csv"))
+    }
+    # Vereditos que o autor já deu no 1º turno. Parte dos pares sorteados agora é a
+    # mesma de então — item idêntico, pergunta idêntica, decisão já tomada. O
+    # veredito é transportado com a origem registrada, e não pedido de novo; o que
+    # nunca foi julgado continua em branco.
+    julgados = {
+        _par(l): l["veredito"]
+        for l in ler_csv(os.path.join(dados, "validacao-manual-r1.csv"))
+        if l["veredito"].strip()
     }
     repositorio = ler_csv(os.path.join(dados, "ri-todos.csv"))
     autores = indice_de_autores(dados)
@@ -298,27 +318,36 @@ def executar(dados: str) -> None:
         chave = (linha["fonte"], linha["id_base"], linha["url_alvo"])
         if chave in anterior:  # estratos já triados: aproveita a evidência escrita
             velha = anterior[chave]
-            saida.append(
-                {
-                    **{c: linha.get(c, "") for c in CAMPOS_SAIDA if c in linha},
-                    "sugestao_triagem": velha["sugestao_triagem"],
-                    "evidencia": velha["evidencia"],
-                    "veredito": "",
-                }
-            )
-            continue
-        autor = autores.get(linha["id_base"], "")
-        ficha = triar(linha, autor, repositorio)
+            ficha = {
+                **{c: linha.get(c, "") for c in CAMPOS_SAIDA if c in linha},
+                "sugestao_triagem": velha["sugestao_triagem"],
+                "evidencia": velha["evidencia"],
+                "veredito_proposto": velha["sugestao_triagem"],
+                "origem_veredito": "",
+                "veredito": "",
+            }
+        else:
+            autor = autores.get(linha["id_base"], "")
+            ficha = triar(linha, autor, repositorio)
+            print(f"  [{len(saida) + 1:3d}/{len(amostra)}] {ficha['sugestao_triagem'][:48]}")
+
+        veredito = julgados.get(_par(ficha))
+        if veredito:
+            ficha["veredito"] = veredito
+            ficha["origem_veredito"] = "1º turno, conferido pelo autor (validacao-manual-r1.csv)"
         saida.append(ficha)
-        print(f"  [{len(saida):3d}/{len(amostra)}] {ficha['sugestao_triagem'][:48]}")
 
     caminho = os.path.join(dados, "validacao-manual.csv")
     escrever_csv(caminho, saida, CAMPOS_SAIDA)
-    contagem = collections.Counter(l["sugestao_triagem"].split("—")[0].strip() for l in saida)
+    contagem = collections.Counter(l["veredito_proposto"].split("—")[0].strip() for l in saida)
     print(f"\ngravado: {caminho}")
     for chave, n in contagem.most_common():
         print(f"  {n:3d}  {chave}")
-    print("\nO veredito de cada linha continua a ser preenchido à mão.")
+    transportados = sum(1 for l in saida if l["origem_veredito"])
+    falta = sum(1 for l in saida if not l["veredito"].strip())
+    print(f"\nveredito transportado do 1º turno: {transportados}")
+    print(f"veredito a preencher à mão: {falta}")
+    print("A coluna 'veredito_proposto' é sugestão da triagem, não decisão.")
 
 
 def principal() -> None:
